@@ -22,7 +22,7 @@ import type { AppContext } from "../types.js";
 export const authRoutes = new Hono<AppContext>();
 
 async function startSession(c: Context<AppContext>, db: ReturnType<typeof getDb>, staffId: string) {
-  const { token } = await createSession(db, staffId);
+  const { token } = await createSession(db, staffId, c.req.header("User-Agent"));
   setCookie(c, SESSION_COOKIE_NAME, token, sessionCookieOptions(c.env, SESSION_TTL_SECONDS));
 }
 

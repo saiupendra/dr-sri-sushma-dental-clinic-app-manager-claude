@@ -36,6 +36,10 @@ export const sessions = sqliteTable(
     staffId: text("staff_id")
       .notNull()
       .references(() => staff.id),
+    userAgent: text("user_agent"),
+    lastUsedAt: text("last_used_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
     expiresAt: text("expires_at").notNull(),
     createdAt: timestamps.createdAt,
   },

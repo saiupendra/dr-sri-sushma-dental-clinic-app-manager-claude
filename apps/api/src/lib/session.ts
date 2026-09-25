@@ -24,11 +24,19 @@ export function toStaffPublic(row: typeof staff.$inferSelect): StaffPublic {
 export async function createSession(
   db: Db,
   staffId: string,
+  userAgent?: string | null,
 ): Promise<{ token: string; expiresAt: string }> {
   const token = randomToken(32);
   const tokenHash = await sha256Hex(token);
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
-  await db.insert(sessions).values({ id: tokenHash, staffId, expiresAt });
+  const now = new Date().toISOString();
+  await db.insert(sessions).values({
+    id: tokenHash,
+    staffId,
+    userAgent: userAgent ?? null,
+    lastUsedAt: now,
+    expiresAt,
+  });
   return { token, expiresAt };
 }
 
@@ -48,6 +56,11 @@ export async function verifySession(db: Db, token: string): Promise<StaffPublic 
     return null;
   }
   if (!row.staff.isActive) return null;
+
+  // Best-effort activity heartbeat for the admin "active sessions" view; not
+  // security-critical, so a failure here should never break authentication.
+  await db.update(sessions).set({ lastUsedAt: new Date().toISOString() }).where(eq(sessions.id, tokenHash));
+
   return toStaffPublic(row.staff);
 }
 

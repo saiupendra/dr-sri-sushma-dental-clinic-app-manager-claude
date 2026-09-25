@@ -8,3 +8,4 @@ export * from "./schemas/treatment.js";
 export * from "./schemas/invoice.js";
 export * from "./schemas/file.js";
 export * from "./schemas/reminder.js";
+export * from "./schemas/admin.js";
