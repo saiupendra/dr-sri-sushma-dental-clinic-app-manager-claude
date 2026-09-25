@@ -11,10 +11,14 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
+  // Dashboard is left off admin's nav, not because it's unreachable, but
+  // because "/" already redirects admin straight to the admin panel (see
+  // HomePage in App.tsx) - a link that just bounces you elsewhere is dead
+  // weight, not a boundary.
   { to: "/", label: "Dashboard", end: true, roles: ["doctor", "front_desk"] },
-  { to: "/patients", label: "Patients", roles: ["doctor", "front_desk"] },
-  { to: "/appointments", label: "Appointments", roles: ["doctor", "front_desk"] },
-  { to: "/billing", label: "Billing", roles: ["doctor", "front_desk"] },
+  { to: "/patients", label: "Patients", roles: ["admin", "doctor", "front_desk"] },
+  { to: "/appointments", label: "Appointments", roles: ["admin", "doctor", "front_desk"] },
+  { to: "/billing", label: "Billing", roles: ["admin", "doctor", "front_desk"] },
   { to: "/staff", label: "Staff", roles: ["admin", "doctor"] },
   { to: "/admin", label: "Admin", roles: ["admin"] },
 ];

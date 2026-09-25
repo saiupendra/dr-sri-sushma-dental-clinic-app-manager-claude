@@ -1,4 +1,4 @@
-import type { SessionSummary } from "@clinic/shared";
+import { ROLE_LABELS, type SessionSummary } from "@clinic/shared";
 import { adminExportUrl, useActiveSessions, useRevokeSession, useStorageStats } from "../../hooks/useAdmin.js";
 import { Badge, Button, Card, PageHeader } from "../../components/ui.js";
 
@@ -112,7 +112,7 @@ function SessionRow({ session }: { session: SessionSummary }) {
       <div>
         <div className="flex items-center gap-2">
           <p className="font-medium text-slate-900">{session.staffName}</p>
-          <Badge tone="slate">{session.staffRole === "doctor" ? "Doctor" : "Front desk"}</Badge>
+          <Badge tone="slate">{ROLE_LABELS[session.staffRole]}</Badge>
           {session.isCurrent && <Badge tone="brand">This device</Badge>}
         </div>
         <p className="mt-1 text-sm text-slate-500">

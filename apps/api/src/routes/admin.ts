@@ -59,7 +59,7 @@ adminRoutes.get("/sessions", async (c) => {
     id: session.id,
     staffId: staffRow.id,
     staffName: staffRow.name,
-    staffRole: staffRow.role,
+    staffRole: staffRow.role as SessionSummary["staffRole"],
     userAgent: session.userAgent,
     isCurrent: session.id === currentTokenHash,
     createdAt: session.createdAt,

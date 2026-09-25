@@ -1,11 +1,12 @@
 import { z } from "zod";
+import { ROLES } from "../constants.js";
 import { idSchema } from "./common.js";
 
 export const sessionSummarySchema = z.object({
   id: z.string(), // sha256 hex of the session token, not a UUID
   staffId: idSchema,
   staffName: z.string(),
-  staffRole: z.string(),
+  staffRole: z.enum(ROLES),
   userAgent: z.string().nullable(),
   isCurrent: z.boolean(),
   createdAt: z.string(),

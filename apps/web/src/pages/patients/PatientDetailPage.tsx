@@ -192,9 +192,11 @@ function TreatmentsTab({
   // Arriving here from a tooth click (prefillTooth set) should open the form
   // immediately, pre-filled with that tooth, rather than just landing on a
   // tab with no indication of which tooth was picked or how to record it.
+  // Only for whoever can actually create one - otherwise this would open a
+  // form that just 403s on submit.
   useEffect(() => {
-    if (prefillTooth) setShowForm(true);
-  }, [prefillTooth]);
+    if (prefillTooth && canCreate) setShowForm(true);
+  }, [prefillTooth, canCreate]);
 
   function closeForm() {
     setShowForm(false);
