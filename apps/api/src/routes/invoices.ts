@@ -105,7 +105,7 @@ invoiceRoutes.post("/", validate("json", createInvoiceSchema), async (c) => {
       id,
       patientId: input.patientId,
       status: "unpaid",
-      date: input.date,
+      date: now,
       totalAmount,
       amountPaid: 0,
       notes: input.notes ?? null,

@@ -4,7 +4,6 @@ import type { CreateInvoiceItemInput } from "@clinic/shared";
 import { useCreateInvoice } from "../../hooks/useInvoices.js";
 import { PatientPicker, type PickedPatient } from "../../components/PatientPicker.js";
 import { usePatient } from "../../hooks/usePatients.js";
-import { todayDateInputValue } from "../../lib/dates.js";
 import { ApiError } from "../../api/client.js";
 import { Button, Card, FieldError, Input, Label, PageHeader } from "../../components/ui.js";
 
@@ -16,7 +15,6 @@ export function InvoiceFormPage() {
   const createInvoice = useCreateInvoice();
 
   const [patient, setPatient] = useState<PickedPatient | null>(null);
-  const [date, setDate] = useState(todayDateInputValue());
   const [items, setItems] = useState<CreateInvoiceItemInput[]>([{ description: "", amount: 0 }]);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,13 +34,13 @@ export function InvoiceFormPage() {
       setError("Choose a patient first.");
       return;
     }
-    const cleanItems = items.filter((item) => item.description.trim() && item.amount > 0);
+    const cleanItems = items.filter((item) => item.description.trim() && Number.isFinite(item.amount) && item.amount >= 0);
     if (cleanItems.length === 0) {
-      setError("Add at least one line item with a description and amount.");
+      setError("Add at least one line item with a description.");
       return;
     }
     try {
-      const result = await createInvoice.mutateAsync({ patientId: effectivePatient.id, date, items: cleanItems });
+      const result = await createInvoice.mutateAsync({ patientId: effectivePatient.id, items: cleanItems });
       navigate(`/billing/${result.item.id}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not create the invoice.");
@@ -61,10 +59,6 @@ export function InvoiceFormPage() {
             ) : (
               <PatientPicker value={patient} onChange={setPatient} />
             )}
-          </div>
-          <div>
-            <Label htmlFor="date">Date</Label>
-            <Input id="date" type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-auto" />
           </div>
           <div>
             <Label>Line items</Label>

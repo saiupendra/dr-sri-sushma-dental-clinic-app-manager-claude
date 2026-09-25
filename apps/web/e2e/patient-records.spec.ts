@@ -11,6 +11,7 @@ test("records patient details and a treatment note, and stays readable offline",
   await page.goto("/patients/new");
   await page.fill("#name", patient.name);
   await page.fill("#phone", patient.phone);
+  await page.fill("#address", "123 Test Street");
   await page.fill("#medicalHistoryNotes", "Allergic to penicillin.");
   await page.click('button[type="submit"]');
   await expect(page).toHaveURL(/\/patients\/[a-f0-9-]+$/);
@@ -20,11 +21,13 @@ test("records patient details and a treatment note, and stays readable offline",
 
   await page.getByRole("button", { name: "Tooth chart" }).click();
   await page.getByRole("button", { name: /^16$/ }).click();
-  await page.getByRole("button", { name: "Treatment notes" }).click();
-  await page.getByRole("button", { name: "+ Add treatment note" }).click();
+  // Clicking a tooth lands on Treatment notes with the add-note form already
+  // open and pre-filled with that tooth (it used to just switch tabs and
+  // silently drop which tooth was clicked, leaving no way to tell it apart
+  // from opening the form with nothing selected).
+  await expect(page.locator("#tooth")).toHaveValue("16");
   await page.fill("#procedure", "Composite filling");
   await page.selectOption("#condition", "filled");
-  await page.fill("#tooth", "16");
   await page.getByRole("button", { name: "Save treatment note" }).click();
   await expect(page.getByText("Composite filling")).toBeVisible();
 

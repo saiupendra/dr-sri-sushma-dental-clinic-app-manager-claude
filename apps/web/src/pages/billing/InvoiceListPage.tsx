@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useInvoicesList } from "../../hooks/useInvoices.js";
-import { formatDate } from "../../lib/dates.js";
+import { formatDateTime } from "../../lib/dates.js";
 import { Badge, Card, EmptyState, PageHeader, Button } from "../../components/ui.js";
 
 export function InvoiceListPage() {
@@ -21,7 +21,7 @@ export function InvoiceListPage() {
                 <div>
                   <p className="font-medium text-slate-900">₹{invoice.totalAmount.toFixed(2)}</p>
                   <p className="text-xs text-slate-400">
-                    {formatDate(invoice.date)} · paid ₹{invoice.amountPaid.toFixed(2)}
+                    {formatDateTime(invoice.date)} · paid ₹{invoice.amountPaid.toFixed(2)}
                   </p>
                 </div>
                 <Badge tone={invoice.status === "paid" ? "green" : invoice.status === "cancelled" ? "red" : "amber"}>

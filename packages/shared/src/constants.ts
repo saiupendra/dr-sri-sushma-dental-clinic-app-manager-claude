@@ -25,7 +25,7 @@ export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
 export const PAYMENT_METHODS = ["cash", "card", "upi", "netbanking", "other"] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
-export const FILE_TYPES = ["xray", "photo", "document", "other"] as const;
+export const FILE_TYPES = ["xray", "photo", "document", "other", "profile_photo"] as const;
 export type FileType = (typeof FILE_TYPES)[number];
 
 export const REMINDER_CHANNELS = ["whatsapp", "sms"] as const;

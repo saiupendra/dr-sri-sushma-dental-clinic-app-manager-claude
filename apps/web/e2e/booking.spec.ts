@@ -9,6 +9,8 @@ test("books an appointment for a patient and blocks a conflicting double-booking
   await page.goto("/patients/new");
   await page.fill("#name", patient.name);
   await page.fill("#phone", patient.phone);
+  await page.fill("#address", "123 Test Street");
+  await page.fill("#medicalHistoryNotes", "None known.");
   await page.click('button[type="submit"]');
   await expect(page).toHaveURL(/\/patients\/[a-f0-9-]+$/);
 

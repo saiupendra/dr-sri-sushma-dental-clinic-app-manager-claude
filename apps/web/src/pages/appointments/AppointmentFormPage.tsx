@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { APPOINTMENT_STATUSES } from "@clinic/shared";
 import { useAppointment, useCreateAppointment, useUpdateAppointment } from "../../hooks/useAppointments.js";
 import { useStaffList } from "../../hooks/useStaff.js";
+import { usePatient } from "../../hooks/usePatients.js";
 import { PatientPicker, type PickedPatient } from "../../components/PatientPicker.js";
 import { fromDatetimeLocalValue, toDatetimeLocalValue } from "../../lib/dates.js";
 import { ApiError } from "../../api/client.js";
@@ -14,12 +15,17 @@ export function AppointmentFormPage() {
   const { id } = useParams<{ id: string }>();
   const isEdit = !!id;
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const preselectedPatientId = searchParams.get("patientId") ?? undefined;
+  const { data: preselectedPatient } = usePatient(!isEdit ? preselectedPatientId : undefined);
   const { data: existing } = useAppointment(id);
   const { data: staffList } = useStaffList();
   const createAppointment = useCreateAppointment();
   const updateAppointment = useUpdateAppointment(id ?? "");
 
   const [patient, setPatient] = useState<PickedPatient | null>(null);
+  const effectivePatient =
+    patient ?? (preselectedPatient ? { id: preselectedPatient.id, name: preselectedPatient.name, phone: preselectedPatient.phone } : null);
   const [staffId, setStaffId] = useState("");
   const [start, setStart] = useState(() => {
     const d = new Date();
@@ -52,7 +58,7 @@ export function AppointmentFormPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!patient) {
+    if (!effectivePatient) {
       setError("Choose a patient first.");
       return;
     }
@@ -62,7 +68,7 @@ export function AppointmentFormPage() {
     try {
       if (isEdit) {
         await updateAppointment.mutateAsync({
-          patientId: patient.id,
+          patientId: effectivePatient.id,
           staffId,
           startAt: startIso,
           endAt: endIso,
@@ -73,14 +79,14 @@ export function AppointmentFormPage() {
       } else {
         const staffName = staffList?.find((s) => s.id === staffId)?.name ?? "";
         const result = await createAppointment.mutateAsync({
-          patientId: patient.id,
+          patientId: effectivePatient.id,
           staffId,
           startAt: startIso,
           endAt: endIso,
           status: "scheduled",
           reasonNote: reasonNote || undefined,
-          patientName: patient.name,
-          patientPhone: patient.phone,
+          patientName: effectivePatient.name,
+          patientPhone: effectivePatient.phone,
           staffName,
         });
         navigate(result.queued ? "/appointments" : `/appointments/${result.data?.item.id}`);
@@ -99,7 +105,11 @@ export function AppointmentFormPage() {
         <form onSubmit={onSubmit} className="space-y-4">
           <div>
             <Label>Patient</Label>
-            <PatientPicker value={patient} onChange={setPatient} />
+            {preselectedPatientId && !isEdit ? (
+              <p className="text-sm font-medium text-slate-900">{effectivePatient?.name}</p>
+            ) : (
+              <PatientPicker value={patient} onChange={setPatient} />
+            )}
           </div>
           <div>
             <Label htmlFor="staff">Dentist / staff</Label>
