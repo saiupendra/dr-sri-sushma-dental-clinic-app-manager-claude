@@ -9,6 +9,8 @@ test("creates an invoice and records payments through to paid", async ({ page })
   await page.goto("/patients/new");
   await page.fill("#name", patient.name);
   await page.fill("#phone", patient.phone);
+  await page.fill("#address", "123 Test Street");
+  await page.fill("#medicalHistoryNotes", "None known.");
   await page.click('button[type="submit"]');
   await expect(page).toHaveURL(/\/patients\/[a-f0-9-]+$/);
   const patientId = page.url().split("/").pop()!;

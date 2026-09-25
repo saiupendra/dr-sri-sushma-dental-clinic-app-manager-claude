@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { PAYMENT_METHODS, type PaymentMethod } from "@clinic/shared";
 import { useDeletePayment, useInvoice, useRecordPayment } from "../../hooks/useInvoices.js";
 import { usePatient } from "../../hooks/usePatients.js";
-import { formatDate, formatDateTime } from "../../lib/dates.js";
+import { formatDateTime } from "../../lib/dates.js";
 import { ApiError } from "../../api/client.js";
 import { Badge, Button, Card, FieldError, Input, Label, PageHeader, Select } from "../../components/ui.js";
 
@@ -43,7 +43,7 @@ export function InvoiceDetailPage() {
     <div className="mx-auto max-w-lg space-y-4">
       <PageHeader
         title={`Invoice · ₹${invoice.totalAmount.toFixed(2)}`}
-        subtitle={formatDate(invoice.date)}
+        subtitle={formatDateTime(invoice.date)}
         action={<Badge tone={invoice.status === "paid" ? "green" : invoice.status === "cancelled" ? "red" : "amber"}>{invoice.status.replace("_", " ")}</Badge>}
       />
 

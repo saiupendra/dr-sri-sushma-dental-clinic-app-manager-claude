@@ -34,8 +34,13 @@ export function PatientFormPage() {
         email: existing.email ?? undefined,
         dateOfBirth: existing.dateOfBirth ?? undefined,
         sex: existing.sex,
-        address: existing.address ?? undefined,
-        medicalHistoryNotes: existing.medicalHistoryNotes ?? undefined,
+        address: existing.address ?? "",
+        medicalHistoryNotes: existing.medicalHistoryNotes ?? "",
+        heightFeet: existing.heightFeet ?? undefined,
+        weightKg: existing.weightKg ?? undefined,
+        bloodPressure: existing.bloodPressure ?? undefined,
+        bloodSugar: existing.bloodSugar ?? undefined,
+        consultationFee: existing.consultationFee ?? undefined,
       });
     }
   }, [existing, reset]);
@@ -67,7 +72,14 @@ export function PatientFormPage() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label htmlFor="phone">Phone</Label>
-              <Input id="phone" type="tel" {...register("phone")} />
+              <Input
+                id="phone"
+                type="tel"
+                inputMode="numeric"
+                maxLength={10}
+                placeholder="10-digit mobile number"
+                {...register("phone")}
+              />
               <FieldError>{errors.phone?.message}</FieldError>
             </div>
             <div>
@@ -91,18 +103,49 @@ export function PatientFormPage() {
               </Select>
             </div>
           </div>
-          <div>
-            <Label htmlFor="address">Address (optional)</Label>
-            <Textarea id="address" rows={2} {...register("address")} />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="heightFeet">Height (ft, optional)</Label>
+              <Input id="heightFeet" type="number" min={0} max={9} step="0.1" {...register("heightFeet")} />
+              <FieldError>{errors.heightFeet?.message}</FieldError>
+            </div>
+            <div>
+              <Label htmlFor="weightKg">Weight (kg, optional)</Label>
+              <Input id="weightKg" type="number" min={0} max={300} step="0.1" {...register("weightKg")} />
+              <FieldError>{errors.weightKg?.message}</FieldError>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="bloodPressure">Blood pressure (optional)</Label>
+              <Input id="bloodPressure" placeholder="e.g. 120/80" {...register("bloodPressure")} />
+              <FieldError>{errors.bloodPressure?.message}</FieldError>
+            </div>
+            <div>
+              <Label htmlFor="bloodSugar">Blood sugar (optional)</Label>
+              <Input id="bloodSugar" placeholder="e.g. 110 mg/dL fasting" {...register("bloodSugar")} />
+              <FieldError>{errors.bloodSugar?.message}</FieldError>
+            </div>
           </div>
           <div>
-            <Label htmlFor="medicalHistoryNotes">Medical history notes (optional)</Label>
+            <Label htmlFor="consultationFee">Consultation fee (optional)</Label>
+            <Input id="consultationFee" type="number" min={0} step="1" {...register("consultationFee")} />
+            <FieldError>{errors.consultationFee?.message}</FieldError>
+          </div>
+          <div>
+            <Label htmlFor="address">Address</Label>
+            <Textarea id="address" rows={2} {...register("address")} />
+            <FieldError>{errors.address?.message}</FieldError>
+          </div>
+          <div>
+            <Label htmlFor="medicalHistoryNotes">Medical history notes</Label>
             <Textarea
               id="medicalHistoryNotes"
               rows={3}
               placeholder="Allergies, conditions, medications…"
               {...register("medicalHistoryNotes")}
             />
+            <FieldError>{errors.medicalHistoryNotes?.message}</FieldError>
           </div>
           <FieldError>{errors.root?.message}</FieldError>
           <div className="flex gap-2">

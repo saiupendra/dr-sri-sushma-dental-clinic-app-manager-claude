@@ -1,8 +1,8 @@
-import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { TOOTH_CONDITIONS, type CreateTreatmentRecordInput } from "@clinic/shared";
+import { useEffect, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { TOOTH_CONDITIONS, type CreateTreatmentRecordInput, type TreatmentRecord } from "@clinic/shared";
 import { usePatient, usePatientToothChart } from "../../hooks/usePatients.js";
-import { useCreateTreatmentRecord, useTreatmentsList } from "../../hooks/useTreatments.js";
+import { useCreateTreatmentRecord, useTreatmentsList, useUpdateTreatmentRecord } from "../../hooks/useTreatments.js";
 import { useFilesList, useUploadFile, fileDownloadUrl } from "../../hooks/useFiles.js";
 import { useInvoicesList } from "../../hooks/useInvoices.js";
 import { useAuth } from "../../auth/useAuth.js";
@@ -16,6 +16,7 @@ type Tab = "overview" | "chart" | "treatments" | "files" | "billing";
 export function PatientDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [tab, setTab] = useState<Tab>("overview");
+  const [prefillTooth, setPrefillTooth] = useState<string | null>(null);
   const { data: patient, isLoading } = usePatient(id);
 
   if (isLoading) return <p className="text-sm text-slate-400">Loading…</p>;
@@ -55,54 +56,145 @@ export function PatientDetailPage() {
       </div>
 
       {tab === "overview" && (
-        <Card>
-          <dl className="grid grid-cols-3 gap-y-3 text-sm">
-            <dt className="text-slate-500">Phone</dt>
-            <dd className="col-span-2">{patient.phone}</dd>
-            <dt className="text-slate-500">Email</dt>
-            <dd className="col-span-2">{patient.email ?? "—"}</dd>
-            <dt className="text-slate-500">Address</dt>
-            <dd className="col-span-2">{patient.address ?? "—"}</dd>
-            <dt className="text-slate-500">Medical history</dt>
-            <dd className="col-span-2 whitespace-pre-wrap">{patient.medicalHistoryNotes ?? "—"}</dd>
-          </dl>
-        </Card>
+        <div className="space-y-4">
+          <Card>
+            <ProfilePhoto patientId={id!} patientName={patient.name} />
+          </Card>
+          <Card>
+            <dl className="grid grid-cols-3 gap-y-3 text-sm">
+              <dt className="text-slate-500">Phone</dt>
+              <dd className="col-span-2">{patient.phone}</dd>
+              <dt className="text-slate-500">Email</dt>
+              <dd className="col-span-2">{patient.email ?? "—"}</dd>
+              <dt className="text-slate-500">Height</dt>
+              <dd className="col-span-2">{patient.heightFeet != null ? `${patient.heightFeet} ft` : "—"}</dd>
+              <dt className="text-slate-500">Weight</dt>
+              <dd className="col-span-2">{patient.weightKg != null ? `${patient.weightKg} kg` : "—"}</dd>
+              <dt className="text-slate-500">Blood pressure</dt>
+              <dd className="col-span-2">{patient.bloodPressure ?? "—"}</dd>
+              <dt className="text-slate-500">Blood sugar</dt>
+              <dd className="col-span-2">{patient.bloodSugar ?? "—"}</dd>
+              <dt className="text-slate-500">Consultation fee</dt>
+              <dd className="col-span-2">
+                {patient.consultationFee != null ? `₹${patient.consultationFee.toFixed(2)}` : "—"}
+              </dd>
+              <dt className="text-slate-500">Address</dt>
+              <dd className="col-span-2">{patient.address ?? "—"}</dd>
+              <dt className="text-slate-500">Medical history</dt>
+              <dd className="col-span-2 whitespace-pre-wrap">{patient.medicalHistoryNotes ?? "—"}</dd>
+            </dl>
+          </Card>
+        </div>
       )}
-      {tab === "chart" && <ToothChartTab patientId={id!} onGoToTreatments={() => setTab("treatments")} />}
-      {tab === "treatments" && <TreatmentsTab patientId={id!} />}
+      {tab === "chart" && (
+        <ToothChartTab
+          patientId={id!}
+          onSelectTooth={(tooth) => {
+            setPrefillTooth(tooth);
+            setTab("treatments");
+          }}
+        />
+      )}
+      {tab === "treatments" && (
+        <TreatmentsTab patientId={id!} prefillTooth={prefillTooth} onPrefillConsumed={() => setPrefillTooth(null)} />
+      )}
       {tab === "files" && <FilesTab patientId={id!} />}
       {tab === "billing" && <BillingTab patientId={id!} />}
     </div>
   );
 }
 
-function ToothChartTab({ patientId, onGoToTreatments }: { patientId: string; onGoToTreatments: () => void }) {
+function ProfilePhoto({ patientId, patientName }: { patientId: string; patientName: string }) {
+  const { data: files } = useFilesList(patientId);
+  const upload = useUploadFile();
+  const [error, setError] = useState<string | null>(null);
+
+  const photo = files
+    ?.filter((f) => f.type === "profile_photo")
+    .sort((a, b) => (a.uploadedAt < b.uploadedAt ? 1 : -1))[0];
+
+  async function onFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError(null);
+    try {
+      await upload.mutateAsync({ patientId, type: "profile_photo", file });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Upload failed. Check your connection and try again.");
+    } finally {
+      e.target.value = "";
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-4">
+      <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-100 text-2xl font-semibold text-slate-400">
+        {photo ? (
+          <img src={fileDownloadUrl(photo.id)} alt="Profile" className="h-full w-full object-cover" />
+        ) : (
+          patientName.charAt(0).toUpperCase()
+        )}
+      </div>
+      <div>
+        <Label htmlFor="profilePhoto">{photo ? "Replace profile picture" : "Add profile picture"}</Label>
+        <input
+          id="profilePhoto"
+          type="file"
+          accept=".jpg,.jpeg,.png,.webp,.heic"
+          onChange={(e) => void onFileChosen(e)}
+        />
+        {upload.isPending && <p className="mt-1 text-xs text-slate-400">Uploading…</p>}
+        <FieldError>{error}</FieldError>
+      </div>
+    </div>
+  );
+}
+
+function ToothChartTab({ patientId, onSelectTooth }: { patientId: string; onSelectTooth: (tooth: string) => void }) {
   const { data: chart, isLoading } = usePatientToothChart(patientId);
   return (
     <Card>
       {isLoading && <p className="text-sm text-slate-400">Loading…</p>}
-      {chart && (
-        <ToothChart entries={chart} onSelectTooth={onGoToTreatments} />
-      )}
+      {chart && <ToothChart entries={chart} onSelectTooth={onSelectTooth} />}
       <p className="mt-4 text-xs text-slate-400">
-        Shows the most recent condition recorded per tooth. Tap a tooth, then add a treatment note against it.
+        Shows the most recent condition recorded per tooth. Tap a tooth to add a treatment note against it.
       </p>
     </Card>
   );
 }
 
-function TreatmentsTab({ patientId }: { patientId: string }) {
+function TreatmentsTab({
+  patientId,
+  prefillTooth,
+  onPrefillConsumed,
+}: {
+  patientId: string;
+  prefillTooth: string | null;
+  onPrefillConsumed: () => void;
+}) {
   const { user } = useAuth();
   const [showForm, setShowForm] = useState(false);
   const { data: treatments, isLoading } = useTreatmentsList(patientId);
   const createTreatment = useCreateTreatmentRecord(patientId);
   const canWrite = user?.role === "doctor";
 
+  // Arriving here from a tooth click (prefillTooth set) should open the form
+  // immediately, pre-filled with that tooth, rather than just landing on a
+  // tab with no indication of which tooth was picked or how to record it.
+  useEffect(() => {
+    if (prefillTooth) setShowForm(true);
+  }, [prefillTooth]);
+
+  function closeForm() {
+    setShowForm(false);
+    onPrefillConsumed();
+  }
+
   return (
     <div className="space-y-4">
       {canWrite && (
         <div className="flex justify-end">
-          <Button size="sm" onClick={() => setShowForm((v) => !v)}>
+          <Button size="sm" onClick={() => (showForm ? closeForm() : setShowForm(true))}>
             {showForm ? "Close" : "+ Add treatment note"}
           </Button>
         </div>
@@ -111,7 +203,8 @@ function TreatmentsTab({ patientId }: { patientId: string }) {
         <TreatmentForm
           patientId={patientId}
           staffId={user!.id}
-          onSaved={() => setShowForm(false)}
+          initialTooth={prefillTooth ?? undefined}
+          onSaved={closeForm}
           mutate={createTreatment}
         />
       )}
@@ -120,21 +213,7 @@ function TreatmentsTab({ patientId }: { patientId: string }) {
         {!isLoading && treatments?.length === 0 && <EmptyState>No treatment notes yet.</EmptyState>}
         <ul className="divide-y divide-slate-100">
           {treatments?.map((t) => (
-            <li key={t.id} className="py-3 text-sm">
-              <div className="flex items-center justify-between">
-                <p className="font-medium text-slate-900">
-                  {t.procedure} {t.toothNumber && <span className="text-slate-400">· Tooth {t.toothNumber}</span>}
-                </p>
-                <Badge tone={t.status === "planned" ? "amber" : "green"}>{t.status}</Badge>
-              </div>
-              <p className="text-xs text-slate-400">{formatDate(t.date)}</p>
-              {t.notes && <p className="mt-1 text-slate-600">{t.notes}</p>}
-              {t.prescription && (
-                <p className="mt-1 text-slate-600">
-                  <span className="font-medium">Prescription:</span> {t.prescription}
-                </p>
-              )}
-            </li>
+            <TreatmentRow key={t.id} patientId={patientId} treatment={t} canWrite={canWrite} />
           ))}
         </ul>
       </Card>
@@ -142,20 +221,67 @@ function TreatmentsTab({ patientId }: { patientId: string }) {
   );
 }
 
+function TreatmentRow({
+  patientId,
+  treatment,
+  canWrite,
+}: {
+  patientId: string;
+  treatment: TreatmentRecord;
+  canWrite: boolean;
+}) {
+  const updateTreatment = useUpdateTreatmentRecord(patientId, treatment.id);
+  const otherStatus = treatment.status === "planned" ? "completed" : "planned";
+
+  return (
+    <li className="py-3 text-sm">
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-medium text-slate-900">
+          {treatment.procedure} {treatment.toothNumber && <span className="text-slate-400">· Tooth {treatment.toothNumber}</span>}
+        </p>
+        <div className="flex shrink-0 items-center gap-2">
+          <Badge tone={treatment.status === "planned" ? "amber" : "green"}>{treatment.status}</Badge>
+          {canWrite && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => updateTreatment.mutate({ status: otherStatus })}
+              disabled={updateTreatment.isPending}
+            >
+              Mark {otherStatus}
+            </Button>
+          )}
+        </div>
+      </div>
+      <p className="text-xs text-slate-400">{formatDate(treatment.date)}</p>
+      {treatment.notes && <p className="mt-1 text-slate-600">{treatment.notes}</p>}
+      {treatment.prescription && (
+        <p className="mt-1 text-slate-600">
+          <span className="font-medium">Prescription:</span> {treatment.prescription}
+        </p>
+      )}
+    </li>
+  );
+}
+
 function TreatmentForm({
   patientId,
   staffId,
+  initialTooth,
   onSaved,
   mutate,
 }: {
   patientId: string;
   staffId: string;
+  initialTooth?: string;
   onSaved: () => void;
   mutate: ReturnType<typeof useCreateTreatmentRecord>;
 }) {
+  const navigate = useNavigate();
   const [form, setForm] = useState<Partial<CreateTreatmentRecordInput>>({
     date: todayDateInputValue(),
     status: "completed",
+    toothNumber: initialTooth,
   });
   const [error, setError] = useState<string | null>(null);
 
@@ -174,6 +300,12 @@ function TreatmentForm({
         date: form.date!,
         status: form.status ?? "completed",
       });
+      // A "planned" treatment needs a booked visit to actually happen, so go
+      // straight to scheduling one instead of just closing the form.
+      if (form.status === "planned") {
+        navigate(`/appointments/new?patientId=${patientId}`);
+        return;
+      }
       onSaved();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save.");
@@ -337,7 +469,7 @@ function BillingTab({ patientId }: { patientId: string }) {
               <Link to={`/billing/${invoice.id}`} className="flex items-center justify-between py-3 text-sm hover:bg-slate-50">
                 <div>
                   <p className="font-medium text-slate-900">₹{invoice.totalAmount.toFixed(2)}</p>
-                  <p className="text-xs text-slate-400">{formatDate(invoice.date)}</p>
+                  <p className="text-xs text-slate-400">{formatDateTime(invoice.date)}</p>
                 </div>
                 <Badge tone={invoice.status === "paid" ? "green" : invoice.status === "cancelled" ? "red" : "amber"}>
                   {invoice.status.replace("_", " ")}

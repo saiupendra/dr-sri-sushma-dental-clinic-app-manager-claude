@@ -2,7 +2,6 @@ import { z } from "zod";
 import { INVOICE_STATUSES, PAYMENT_METHODS } from "../constants.js";
 import {
   idSchema,
-  isoDateSchema,
   isoDateTimeSchema,
   paginationQuerySchema,
   timestampsSchema,
@@ -50,7 +49,9 @@ export const invoiceSchema = z
     id: idSchema,
     patientId: idSchema,
     status: z.enum(INVOICE_STATUSES),
-    date: isoDateSchema,
+    // Set once, server-side, at creation (see POST /api/invoices) - not
+    // user-editable, so it reflects exactly when the invoice was issued.
+    date: isoDateTimeSchema,
     totalAmount: z.number().nonnegative(),
     amountPaid: z.number().nonnegative(),
     notes: z.string().max(2000).nullable(),
@@ -64,7 +65,6 @@ export type Invoice = z.infer<typeof invoiceSchema>;
 export const createInvoiceSchema = z.object({
   id: idSchema.optional(),
   patientId: idSchema,
-  date: isoDateSchema,
   notes: z.string().max(2000).optional(),
   items: z.array(createInvoiceItemSchema).min(1),
 });
