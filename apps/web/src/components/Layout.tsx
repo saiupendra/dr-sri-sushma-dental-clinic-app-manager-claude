@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
+import { ROLE_LABELS, type Role } from "@clinic/shared";
 import { useAuth } from "../auth/useAuth.js";
 import { SyncStatusBadge } from "./SyncStatusBadge.js";
 
@@ -6,16 +7,16 @@ interface NavItem {
   to: string;
   label: string;
   end?: boolean;
-  doctorOnly?: boolean;
+  roles?: Role[];
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { to: "/", label: "Dashboard", end: true },
-  { to: "/patients", label: "Patients" },
-  { to: "/appointments", label: "Appointments" },
-  { to: "/billing", label: "Billing" },
-  { to: "/staff", label: "Staff", doctorOnly: true },
-  { to: "/admin", label: "Admin", doctorOnly: true },
+  { to: "/", label: "Dashboard", end: true, roles: ["doctor", "front_desk"] },
+  { to: "/patients", label: "Patients", roles: ["doctor", "front_desk"] },
+  { to: "/appointments", label: "Appointments", roles: ["doctor", "front_desk"] },
+  { to: "/billing", label: "Billing", roles: ["doctor", "front_desk"] },
+  { to: "/staff", label: "Staff", roles: ["admin", "doctor"] },
+  { to: "/admin", label: "Admin", roles: ["admin"] },
 ];
 
 export function Layout() {
@@ -28,7 +29,7 @@ export function Layout() {
           <div className="flex items-center gap-6">
             <span className="text-sm font-semibold text-brand-900">Clinic Manager</span>
             <nav className="hidden gap-1 sm:flex">
-              {NAV_ITEMS.filter((item) => !item.doctorOnly || user?.role === "doctor").map((item) => (
+              {NAV_ITEMS.filter((item) => !item.roles || (!!user && item.roles.includes(user.role))).map((item) => (
                 <NavLink
                   key={item.to}
                   to={item.to}
@@ -47,7 +48,7 @@ export function Layout() {
           <div className="flex items-center gap-3">
             <SyncStatusBadge />
             <span className="hidden text-sm text-slate-500 sm:inline">
-              {user?.name} · {user?.role === "doctor" ? "Doctor" : "Front desk"}
+              {user?.name} · {user && ROLE_LABELS[user.role]}
             </span>
             <button
               onClick={() => void logout()}
@@ -58,7 +59,7 @@ export function Layout() {
           </div>
         </div>
         <nav className="flex gap-1 overflow-x-auto border-t border-slate-100 px-4 py-2 sm:hidden">
-          {NAV_ITEMS.filter((item) => !item.doctorOnly || user?.role === "doctor").map((item) => (
+          {NAV_ITEMS.filter((item) => !item.roles || (!!user && item.roles.includes(user.role))).map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

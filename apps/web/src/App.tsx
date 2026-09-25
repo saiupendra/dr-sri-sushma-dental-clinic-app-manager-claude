@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { ProtectedRoute } from "./auth/ProtectedRoute.js";
+import { useAuth } from "./auth/useAuth.js";
 import { Layout } from "./components/Layout.js";
 import { LoginPage } from "./pages/LoginPage.js";
 import { SetupPage } from "./pages/SetupPage.js";
@@ -17,6 +18,15 @@ import { InvoiceDetailPage } from "./pages/billing/InvoiceDetailPage.js";
 import { StaffListPage } from "./pages/staff/StaffListPage.js";
 import { AdminPage } from "./pages/admin/AdminPage.js";
 
+// Admin is a system/operations role with no clinical access (see the ROLES
+// comment in constants.ts), so the clinical dashboard is no use to it -
+// send it straight to the admin panel instead.
+function HomePage() {
+  const { user } = useAuth();
+  if (user?.role === "admin") return <Navigate to="/admin" replace />;
+  return <DashboardPage />;
+}
+
 export function App() {
   return (
     <Routes>
@@ -25,24 +35,28 @@ export function App() {
 
       <Route element={<ProtectedRoute />}>
         <Route element={<Layout />}>
-          <Route index element={<DashboardPage />} />
+          <Route index element={<HomePage />} />
 
-          <Route path="patients" element={<PatientListPage />} />
-          <Route path="patients/new" element={<PatientFormPage />} />
-          <Route path="patients/:id" element={<PatientDetailPage />} />
-          <Route path="patients/:id/edit" element={<PatientFormPage />} />
+          <Route element={<ProtectedRoute roles={["doctor", "front_desk"]} />}>
+            <Route path="patients" element={<PatientListPage />} />
+            <Route path="patients/new" element={<PatientFormPage />} />
+            <Route path="patients/:id" element={<PatientDetailPage />} />
+            <Route path="patients/:id/edit" element={<PatientFormPage />} />
 
-          <Route path="appointments" element={<AppointmentListPage />} />
-          <Route path="appointments/new" element={<AppointmentFormPage />} />
-          <Route path="appointments/:id" element={<AppointmentDetailPage />} />
-          <Route path="appointments/:id/edit" element={<AppointmentFormPage />} />
+            <Route path="appointments" element={<AppointmentListPage />} />
+            <Route path="appointments/new" element={<AppointmentFormPage />} />
+            <Route path="appointments/:id" element={<AppointmentDetailPage />} />
+            <Route path="appointments/:id/edit" element={<AppointmentFormPage />} />
 
-          <Route path="billing" element={<InvoiceListPage />} />
-          <Route path="billing/new" element={<InvoiceFormPage />} />
-          <Route path="billing/:id" element={<InvoiceDetailPage />} />
+            <Route path="billing" element={<InvoiceListPage />} />
+            <Route path="billing/new" element={<InvoiceFormPage />} />
+            <Route path="billing/:id" element={<InvoiceDetailPage />} />
+          </Route>
 
-          <Route element={<ProtectedRoute roles={["doctor"]} />}>
+          <Route element={<ProtectedRoute roles={["admin", "doctor"]} />}>
             <Route path="staff" element={<StaffListPage />} />
+          </Route>
+          <Route element={<ProtectedRoute roles={["admin"]} />}>
             <Route path="admin" element={<AdminPage />} />
           </Route>
 

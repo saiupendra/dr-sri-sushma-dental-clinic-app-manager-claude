@@ -36,7 +36,7 @@ export const updateStaffSchema = z.object({
 });
 export type UpdateStaffInput = z.infer<typeof updateStaffSchema>;
 
-/** POST /api/auth/bootstrap: the first account is always a doctor, so it takes no role field. */
+/** POST /api/auth/bootstrap: the first account is always an admin, so it takes no role field. */
 export const bootstrapStaffSchema = createStaffSchema.omit({ role: true });
 export type BootstrapStaffInput = z.infer<typeof bootstrapStaffSchema>;
 

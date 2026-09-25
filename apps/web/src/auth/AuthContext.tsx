@@ -1,7 +1,7 @@
-import { createContext, type ReactNode } from "react";
+import { createContext, useEffect, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { BootstrapStaffInput, LoginRequest, StaffPublic } from "@clinic/shared";
-import { api } from "../api/client.js";
+import { api, setUnauthorizedHandler } from "../api/client.js";
 import { useCurrentUser } from "./useCurrentUser.js";
 
 export interface AuthContextValue {
@@ -18,6 +18,14 @@ export const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const { data: user, isLoading } = useCurrentUser();
+
+  useEffect(() => {
+    // Any API call noticing a dead session clears the cached user, so every
+    // ProtectedRoute redirects to /login right away - not just after the
+    // next background /api/auth/me refetch.
+    setUnauthorizedHandler(() => queryClient.setQueryData(["auth", "me"], null));
+    return () => setUnauthorizedHandler(null);
+  }, [queryClient]);
 
   const loginMutation = useMutation({
     mutationFn: (input: LoginRequest) => api.post<{ user: StaffPublic }>("/api/auth/login", input),

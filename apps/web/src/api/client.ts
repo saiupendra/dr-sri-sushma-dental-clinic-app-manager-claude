@@ -22,6 +22,14 @@ export class NetworkError extends Error {
 
 export type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
 
+// Lets AuthProvider learn that a session has died (idle timeout,
+// deactivation, a password reset elsewhere) from whichever API call happens
+// to notice it first, not just the ones that already special-case 401.
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  onUnauthorized = handler;
+}
+
 export async function apiRequest<T>(method: HttpMethod, path: string, body?: unknown): Promise<T> {
   const isFormData = body instanceof FormData;
   let response: Response;
@@ -44,6 +52,7 @@ export async function apiRequest<T>(method: HttpMethod, path: string, body?: unk
   if (!response.ok) {
     const envelope = data as { error?: { code: string; message: string; details?: unknown } } | undefined;
     const err = envelope?.error ?? { code: "unknown_error", message: "Something went wrong. Please try again." };
+    if (response.status === 401) onUnauthorized?.();
     throw new ApiError(response.status, err.code, err.message, err.details);
   }
   return data as T;

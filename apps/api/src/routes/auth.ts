@@ -8,7 +8,7 @@ import { hashPassword, verifyPassword } from "../lib/crypto.js";
 import { badRequest, unauthorized } from "../lib/responses.js";
 import {
   SESSION_COOKIE_NAME,
-  SESSION_TTL_SECONDS,
+  SESSION_IDLE_TIMEOUT_SECONDS,
   createSession,
   destroyAllSessionsForStaff,
   destroySession,
@@ -23,19 +23,20 @@ export const authRoutes = new Hono<AppContext>();
 
 async function startSession(c: Context<AppContext>, db: ReturnType<typeof getDb>, staffId: string) {
   const { token } = await createSession(db, staffId, c.req.header("User-Agent"));
-  setCookie(c, SESSION_COOKIE_NAME, token, sessionCookieOptions(c.env, SESSION_TTL_SECONDS));
+  setCookie(c, SESSION_COOKIE_NAME, token, sessionCookieOptions(c.env, SESSION_IDLE_TIMEOUT_SECONDS));
 }
 
 /**
- * One-time setup: creates the first doctor account. Only works while the
- * staff table is empty, so it can never be used to add a second account —
- * after that, staff creation goes through POST /api/staff (doctor-only).
+ * One-time setup: creates the first account, always an admin (the root
+ * system/operations role - see the ROLES comment in constants.ts). Only
+ * works while the staff table is empty, so it can never be used to add a
+ * second account - after that, staff creation goes through POST /api/staff.
  */
 authRoutes.post("/bootstrap", validate("json", bootstrapStaffSchema), async (c) => {
   const db = getDb(c.env);
   const existing = await db.select({ id: staff.id }).from(staff).limit(1);
   if (existing.length > 0) {
-    throw badRequest("Setup has already been completed. Ask a doctor account holder to add staff.");
+    throw badRequest("Setup has already been completed. Ask an admin or doctor account holder to add staff.");
   }
 
   const input = c.req.valid("json");
@@ -47,7 +48,7 @@ authRoutes.post("/bootstrap", validate("json", bootstrapStaffSchema), async (c) 
     id,
     username: input.username.toLowerCase(),
     name: input.name,
-    role: "doctor",
+    role: "admin",
     phone: input.phone ?? null,
     passwordHash: hash,
     passwordSalt: salt,

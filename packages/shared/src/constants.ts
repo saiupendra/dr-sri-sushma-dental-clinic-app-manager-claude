@@ -1,9 +1,21 @@
 /** Used only to build reminder message text; all other clinic facts (address, hours) live outside this app. */
 export const CLINIC_NAME = "Dr.Sri Sushma Multispeciality Dental Clinic";
 
-/** Staff roles. Doctor has full access; front-desk is scoped (see requireRole() call sites in apps/api/src/routes). */
-export const ROLES = ["doctor", "front_desk"] as const;
+/**
+ * Staff roles. Admin is the system/operations role (staff accounts,
+ * sessions, exports) and is never a treating clinician - clinical routes
+ * stay gated to "doctor" specifically, never "admin". Doctor has full
+ * clinical access plus day-to-day front-desk management; front-desk is
+ * scoped. See requireRole() call sites in apps/api/src/routes.
+ */
+export const ROLES = ["admin", "doctor", "front_desk"] as const;
 export type Role = (typeof ROLES)[number];
+
+export const ROLE_LABELS: Record<Role, string> = {
+  admin: "Admin",
+  doctor: "Doctor",
+  front_desk: "Front desk",
+};
 
 export const APPOINTMENT_STATUSES = [
   "scheduled",
