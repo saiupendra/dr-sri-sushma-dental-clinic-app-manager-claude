@@ -46,7 +46,7 @@ ENVIRONMENT = "staging"
 ALLOWED_ORIGIN = "https://staging-app.drsrisushmadentalclinic.com"
 COOKIE_DOMAIN = ".drsrisushmadentalclinic.com"
 
-[[env.staging.triggers.crons]]
+[env.staging.triggers]
 crons = ["0 21 * * *"]
 
 # ---------------------------------------------------------------------------
@@ -74,5 +74,5 @@ ALLOWED_ORIGIN = "https://app.drsrisushmadentalclinic.com"
 COOKIE_DOMAIN = ".drsrisushmadentalclinic.com"
 
 # Nightly backup export (see src/routes/internal/backup.ts). 21:00 UTC = 2:30am IST.
-[[env.production.triggers.crons]]
+[env.production.triggers]
 crons = ["0 21 * * *"]
