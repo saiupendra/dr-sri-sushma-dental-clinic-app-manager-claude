@@ -1,14 +1,17 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { createStaffSchema, type CreateStaffInput } from "@clinic/shared";
+import { createStaffSchema, ROLE_LABELS, type CreateStaffInput, type Role } from "@clinic/shared";
+import { useAuth } from "../../auth/useAuth.js";
 import { useCreateStaff, useResetStaffPassword, useStaffList, useUpdateStaff } from "../../hooks/useStaff.js";
 import { ApiError } from "../../api/client.js";
 import { Badge, Button, Card, FieldError, Input, Label, PageHeader, Select } from "../../components/ui.js";
 
 export function StaffListPage() {
   const [showForm, setShowForm] = useState(false);
+  const { user } = useAuth();
   const { data: staffList, isLoading } = useStaffList();
+  const isAdmin = user?.role === "admin";
 
   return (
     <div className="space-y-4">
@@ -16,12 +19,12 @@ export function StaffListPage() {
         title="Staff accounts"
         action={<Button onClick={() => setShowForm((v) => !v)}>{showForm ? "Close" : "+ Add staff"}</Button>}
       />
-      {showForm && <NewStaffForm onSaved={() => setShowForm(false)} />}
+      {showForm && <NewStaffForm isAdmin={isAdmin} onSaved={() => setShowForm(false)} />}
       <Card>
         {isLoading && <p className="text-sm text-slate-400">Loading…</p>}
         <ul className="divide-y divide-slate-100">
           {staffList?.map((member) => (
-            <StaffRow key={member.id} staff={member} />
+            <StaffRow key={member.id} staff={member} canManage={isAdmin || member.role === "front_desk"} />
           ))}
         </ul>
       </Card>
@@ -29,7 +32,7 @@ export function StaffListPage() {
   );
 }
 
-function NewStaffForm({ onSaved }: { onSaved: () => void }) {
+function NewStaffForm({ isAdmin, onSaved }: { isAdmin: boolean; onSaved: () => void }) {
   const createStaff = useCreateStaff();
   const {
     register,
@@ -57,10 +60,21 @@ function NewStaffForm({ onSaved }: { onSaved: () => void }) {
         </div>
         <div>
           <Label htmlFor="role">Role</Label>
-          <Select id="role" {...register("role")}>
-            <option value="front_desk">Front desk</option>
-            <option value="doctor">Doctor</option>
-          </Select>
+          {isAdmin ? (
+            <Select id="role" {...register("role")}>
+              <option value="front_desk">Front desk</option>
+              <option value="doctor">Doctor</option>
+              <option value="admin">Admin</option>
+            </Select>
+          ) : (
+            // A doctor can only ever create a front-desk account, so there is
+            // nothing to choose - registering the field keeps react-hook-form
+            // submitting the fixed default value.
+            <>
+              <input type="hidden" {...register("role")} defaultValue="front_desk" />
+              <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">Front desk</p>
+            </>
+          )}
         </div>
         <div>
           <Label htmlFor="username">Username</Label>
@@ -83,7 +97,13 @@ function NewStaffForm({ onSaved }: { onSaved: () => void }) {
   );
 }
 
-function StaffRow({ staff }: { staff: { id: string; name: string; username: string; role: string; isActive: boolean } }) {
+function StaffRow({
+  staff,
+  canManage,
+}: {
+  staff: { id: string; name: string; username: string; role: Role; isActive: boolean };
+  canManage: boolean;
+}) {
   const [resetting, setResetting] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const updateStaff = useUpdateStaff(staff.id);
@@ -97,24 +117,26 @@ function StaffRow({ staff }: { staff: { id: string; name: string; username: stri
             {staff.name} <span className="font-normal text-slate-400">@{staff.username}</span>
           </p>
           <div className="mt-1 flex gap-2">
-            <Badge tone="brand">{staff.role === "doctor" ? "Doctor" : "Front desk"}</Badge>
+            <Badge tone="brand">{ROLE_LABELS[staff.role]}</Badge>
             <Badge tone={staff.isActive ? "green" : "red"}>{staff.isActive ? "Active" : "Deactivated"}</Badge>
           </div>
         </div>
-        <div className="flex gap-2">
-          <Button size="sm" variant="secondary" onClick={() => setResetting((v) => !v)}>
-            Reset password
-          </Button>
-          <Button
-            size="sm"
-            variant={staff.isActive ? "danger" : "secondary"}
-            onClick={() => updateStaff.mutate({ isActive: !staff.isActive })}
-          >
-            {staff.isActive ? "Deactivate" : "Reactivate"}
-          </Button>
-        </div>
+        {canManage && (
+          <div className="flex gap-2">
+            <Button size="sm" variant="secondary" onClick={() => setResetting((v) => !v)}>
+              Reset password
+            </Button>
+            <Button
+              size="sm"
+              variant={staff.isActive ? "danger" : "secondary"}
+              onClick={() => updateStaff.mutate({ isActive: !staff.isActive })}
+            >
+              {staff.isActive ? "Deactivate" : "Reactivate"}
+            </Button>
+          </div>
+        )}
       </div>
-      {resetting && (
+      {canManage && resetting && (
         <div className="mt-3 flex items-end gap-2">
           <div className="flex-1">
             <Label htmlFor={`pw-${staff.id}`}>New password</Label>

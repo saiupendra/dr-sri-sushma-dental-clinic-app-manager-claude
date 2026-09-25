@@ -128,7 +128,7 @@ export function PatientFormPage() {
             </div>
           </div>
           <div>
-            <Label htmlFor="consultationFee">Consultation fee (optional)</Label>
+            <Label htmlFor="consultationFee">Consultation fee</Label>
             <Input id="consultationFee" type="number" min={0} step="1" {...register("consultationFee")} />
             <FieldError>{errors.consultationFee?.message}</FieldError>
           </div>

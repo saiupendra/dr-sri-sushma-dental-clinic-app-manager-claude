@@ -4,9 +4,9 @@ import { requireAuth, requireRole } from "../middleware/auth.js";
 import type { AppContext } from "../types.js";
 
 export const internalRoutes = new Hono<AppContext>();
-internalRoutes.use("*", requireAuth, requireRole("doctor"));
+internalRoutes.use("*", requireAuth, requireRole("admin", "doctor"));
 
-/** Lets a doctor trigger an out-of-band backup before a risky change, without waiting for the nightly cron. */
+/** Lets an admin or doctor trigger an out-of-band backup before a risky change, without waiting for the nightly cron. */
 internalRoutes.post("/backup", async (c) => {
   const result = await runNightlyBackup(c.env);
   return c.json({ ok: true, ...result });

@@ -5,7 +5,7 @@ import { FILE_TYPES, idParamSchema } from "@clinic/shared";
 import { getDb } from "../db/client.js";
 import { files, patients } from "../db/schema.js";
 import { badRequest, notFound } from "../lib/responses.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireRole } from "../middleware/auth.js";
 import { validate } from "../lib/validate.js";
 import type { AppContext } from "../types.js";
 
@@ -146,7 +146,10 @@ fileRoutes.post("/", async (c) => {
   return c.json({ item: toFile(row!) }, 201);
 });
 
-fileRoutes.delete("/:id", validate("param", idParamSchema), async (c) => {
+// Only admin can delete an uploaded file - a doctor or front-desk account
+// should never be able to remove evidence (an X-ray, a photo) from a
+// patient's record. See the ROLES comment in constants.ts.
+fileRoutes.delete("/:id", requireRole("admin"), validate("param", idParamSchema), async (c) => {
   const { id } = c.req.valid("param");
   const db = getDb(c.env);
   const [existing] = await db

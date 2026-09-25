@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
-import { desc, eq, gt, isNull, sql } from "drizzle-orm";
+import { desc, eq, gt, isNull, lt, sql } from "drizzle-orm";
 import { strToU8, zipSync } from "fflate";
 import { z } from "zod";
 import type { SessionSummary, StorageStats } from "@clinic/shared";
@@ -20,16 +20,18 @@ import {
 import { sha256Hex } from "../lib/crypto.js";
 import { toCsv } from "../lib/csv.js";
 import { notFound } from "../lib/responses.js";
-import { SESSION_COOKIE_NAME } from "../lib/session.js";
+import { SESSION_COOKIE_NAME, SESSION_IDLE_TIMEOUT_SECONDS } from "../lib/session.js";
 import { validate } from "../lib/validate.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import type { AppContext } from "../types.js";
 
 export const adminRoutes = new Hono<AppContext>();
 
-// Everything here is doctor-only: session/device visibility, storage totals,
-// and the bulk patient-data export are all things front-desk should never see.
-adminRoutes.use("*", requireAuth, requireRole("doctor"));
+// Admin-only: session/device visibility, storage totals, and the bulk
+// patient-data export are system/operations concerns, not clinical ones -
+// doctors (and of course front-desk) don't get this, same as admin never
+// gets clinical write access. See the ROLES comment in constants.ts.
+adminRoutes.use("*", requireAuth, requireRole("admin"));
 
 // Session ids are a sha256 hex digest of the token (see lib/session.ts), not
 // a UUID, so this can't reuse the shared idParamSchema.
@@ -39,6 +41,12 @@ adminRoutes.get("/sessions", async (c) => {
   const db = getDb(c.env);
   const currentToken = getCookie(c, SESSION_COOKIE_NAME);
   const currentTokenHash = currentToken ? await sha256Hex(currentToken) : undefined;
+
+  // Idle-expired sessions are only deleted lazily, on their next use
+  // (verifySession) - sweep them here too, so this view never shows a
+  // session as active when its owner has already been logged out of it.
+  const idleCutoff = new Date(Date.now() - SESSION_IDLE_TIMEOUT_SECONDS * 1000).toISOString();
+  await db.delete(sessions).where(lt(sessions.lastUsedAt, idleCutoff));
 
   const rows = await db
     .select({ session: sessions, staff })

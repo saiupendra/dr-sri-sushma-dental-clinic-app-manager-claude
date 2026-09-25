@@ -5,8 +5,26 @@ import { sessions, staff } from "../db/schema.js";
 import { randomToken, sha256Hex } from "./crypto.js";
 
 export const SESSION_COOKIE_NAME = "clinic_session";
+// Absolute cap on a session's lifetime regardless of activity - a rarely-hit
+// safety net. The idle timeout below is what actually governs everyday logout.
 export const SESSION_TTL_SECONDS = 14 * 24 * 60 * 60; // 14 days
+// A session with no request against it for this long is treated as logged
+// out, even though its absolute expiresAt is far from reached. Both the DB
+// row (verifySession) and the browser cookie (requireAuth, startSession) are
+// checked/reissued against this value.
+export const SESSION_IDLE_TIMEOUT_SECONDS = 15 * 60; // 15 minutes
 const SESSION_TTL_MS = SESSION_TTL_SECONDS * 1000;
+const SESSION_IDLE_TIMEOUT_MS = SESSION_IDLE_TIMEOUT_SECONDS * 1000;
+
+/** True once a session's absolute lifetime is up, regardless of activity. */
+export function isSessionExpired(expiresAt: string, now: number): boolean {
+  return new Date(expiresAt).getTime() < now;
+}
+
+/** True once a session has had no activity for longer than the idle timeout. */
+export function isSessionIdle(lastActiveAt: string, now: number): boolean {
+  return now - new Date(lastActiveAt).getTime() > SESSION_IDLE_TIMEOUT_MS;
+}
 
 export function toStaffPublic(row: typeof staff.$inferSelect): StaffPublic {
   return {
@@ -51,15 +69,25 @@ export async function verifySession(db: Db, token: string): Promise<StaffPublic 
     .limit(1);
 
   if (!row) return null;
-  if (new Date(row.session.expiresAt).getTime() < Date.now()) {
+  const now = Date.now();
+  if (isSessionExpired(row.session.expiresAt, now)) {
     await db.delete(sessions).where(eq(sessions.id, tokenHash));
     return null;
   }
+
+  // Sliding inactivity timeout: log out a session nobody has used in a
+  // while, even though its absolute expiresAt hasn't been reached yet.
+  // lastUsedAt is nullable only for rows old enough to predate that column;
+  // createdAt is the right fallback for those.
+  const lastActive = row.session.lastUsedAt ?? row.session.createdAt;
+  if (isSessionIdle(lastActive, now)) {
+    await db.delete(sessions).where(eq(sessions.id, tokenHash));
+    return null;
+  }
+
   if (!row.staff.isActive) return null;
 
-  // Best-effort activity heartbeat for the admin "active sessions" view; not
-  // security-critical, so a failure here should never break authentication.
-  await db.update(sessions).set({ lastUsedAt: new Date().toISOString() }).where(eq(sessions.id, tokenHash));
+  await db.update(sessions).set({ lastUsedAt: new Date(now).toISOString() }).where(eq(sessions.id, tokenHash));
 
   return toStaffPublic(row.staff);
 }

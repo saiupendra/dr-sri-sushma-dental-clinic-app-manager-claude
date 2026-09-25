@@ -4,7 +4,7 @@ import { createStaffSchema, idParamSchema, resetPasswordSchema, updateStaffSchem
 import { getDb } from "../db/client.js";
 import { staff } from "../db/schema.js";
 import { hashPassword } from "../lib/crypto.js";
-import { badRequest, notFound } from "../lib/responses.js";
+import { badRequest, forbidden, notFound } from "../lib/responses.js";
 import { destroyAllSessionsForStaff, toStaffPublic } from "../lib/session.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { validate } from "../lib/validate.js";
@@ -12,18 +12,29 @@ import type { AppContext } from "../types.js";
 
 export const staffRoutes = new Hono<AppContext>();
 
-// Every route in this file is doctor-only: staff accounts and roles are
-// sensitive, and front-desk users must never be able to create or elevate one.
-staffRoutes.use("*", requireAuth, requireRole("doctor"));
+// Listing is open to every signed-in role, because front-desk needs it to
+// staff the appointment picker - but an admin account is never in that list
+// for anyone except another admin. Creating, editing and resetting a
+// password are doctor-and-up, and a doctor's reach there stops at front-desk
+// accounts: never an admin, and never another doctor (or their own doctor
+// account - that's done through /api/auth/change-password). Admin is
+// unrestricted throughout. See the ROLES comment in constants.ts.
+staffRoutes.use("*", requireAuth);
 
 staffRoutes.get("/", async (c) => {
   const db = getDb(c.env);
+  const user = c.get("currentUser");
   const rows = await db.select().from(staff).orderBy(desc(staff.createdAt));
-  return c.json({ items: rows.map(toStaffPublic) });
+  const visible = user.role === "admin" ? rows : rows.filter((row) => row.role !== "admin");
+  return c.json({ items: visible.map(toStaffPublic) });
 });
 
-staffRoutes.post("/", validate("json", createStaffSchema), async (c) => {
+staffRoutes.post("/", requireRole("admin", "doctor"), validate("json", createStaffSchema), async (c) => {
   const input = c.req.valid("json");
+  const user = c.get("currentUser");
+  if (user.role === "doctor" && input.role !== "front_desk") {
+    throw forbidden("Doctors can only create front-desk accounts. Ask an admin to add a doctor or admin account.");
+  }
   const db = getDb(c.env);
 
   const [dup] = await db
@@ -54,13 +65,18 @@ staffRoutes.post("/", validate("json", createStaffSchema), async (c) => {
   return c.json({ item: toStaffPublic(row!) }, 201);
 });
 
-staffRoutes.patch("/:id", validate("param", idParamSchema), validate("json", updateStaffSchema), async (c) => {
+staffRoutes.patch("/:id", requireRole("admin", "doctor"), validate("param", idParamSchema), validate("json", updateStaffSchema), async (c) => {
   const id = c.req.param("id");
   const input = c.req.valid("json");
+  const user = c.get("currentUser");
   const db = getDb(c.env);
 
   const [existing] = await db.select().from(staff).where(eq(staff.id, id)).limit(1);
   if (!existing) throw notFound("Staff member");
+
+  if (user.role === "doctor" && (existing.role !== "front_desk" || (input.role && input.role !== "front_desk"))) {
+    throw forbidden("Doctors can only manage front-desk accounts.");
+  }
 
   await db
     .update(staff)
@@ -76,13 +92,18 @@ staffRoutes.patch("/:id", validate("param", idParamSchema), validate("json", upd
   return c.json({ item: toStaffPublic(row!) });
 });
 
-staffRoutes.post("/:id/reset-password", validate("param", idParamSchema), validate("json", resetPasswordSchema), async (c) => {
+staffRoutes.post("/:id/reset-password", requireRole("admin", "doctor"), validate("param", idParamSchema), validate("json", resetPasswordSchema), async (c) => {
   const id = c.req.param("id");
   const { password } = c.req.valid("json");
+  const user = c.get("currentUser");
   const db = getDb(c.env);
 
   const [existing] = await db.select().from(staff).where(eq(staff.id, id)).limit(1);
   if (!existing) throw notFound("Staff member");
+
+  if (user.role === "doctor" && existing.role !== "front_desk") {
+    throw forbidden("Doctors can only reset front-desk passwords.");
+  }
 
   const { hash, salt } = await hashPassword(password);
   await db

@@ -20,6 +20,10 @@ export function AppointmentFormPage() {
   const { data: preselectedPatient } = usePatient(!isEdit ? preselectedPatientId : undefined);
   const { data: existing } = useAppointment(id);
   const { data: staffList } = useStaffList();
+  // Admin accounts are never a treating clinician or front-desk booker, so
+  // they never belong in this picker even though the list endpoint returns
+  // them to an admin caller.
+  const bookableStaff = staffList?.filter((s) => s.role !== "admin");
   const createAppointment = useCreateAppointment();
   const updateAppointment = useUpdateAppointment(id ?? "");
 
@@ -50,10 +54,10 @@ export function AppointmentFormPage() {
   }, [existing]);
 
   useEffect(() => {
-    if (!staffId && staffList && staffList.length > 0) {
-      setStaffId(staffList.find((s) => s.role === "doctor")?.id ?? staffList[0]!.id);
+    if (!staffId && bookableStaff && bookableStaff.length > 0) {
+      setStaffId(bookableStaff.find((s) => s.role === "doctor")?.id ?? bookableStaff[0]!.id);
     }
-  }, [staffList, staffId]);
+  }, [bookableStaff, staffId]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -105,8 +109,12 @@ export function AppointmentFormPage() {
         <form onSubmit={onSubmit} className="space-y-4">
           <div>
             <Label>Patient</Label>
-            {preselectedPatientId && !isEdit ? (
-              <p className="text-sm font-medium text-slate-900">{effectivePatient?.name}</p>
+            {isEdit || preselectedPatientId ? (
+              // Read-only: an appointment isn't reassigned to a different
+              // patient by editing it, and (for the edit case) PatientPicker
+              // only reads its `value` prop once at mount, so it can't
+              // reflect the patient loading in asynchronously anyway.
+              <p className="text-sm font-medium text-slate-900">{effectivePatient?.name ?? "Loading…"}</p>
             ) : (
               <PatientPicker value={patient} onChange={setPatient} />
             )}
@@ -114,7 +122,12 @@ export function AppointmentFormPage() {
           <div>
             <Label htmlFor="staff">Dentist / staff</Label>
             <Select id="staff" value={staffId} onChange={(e) => setStaffId(e.target.value)}>
-              {staffList?.map((s) => (
+              {isEdit && existing && !bookableStaff?.some((s) => s.id === existing.staffId) && (
+                <option value={existing.staffId} disabled>
+                  {existing.staffName} (no longer available)
+                </option>
+              )}
+              {bookableStaff?.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name} {s.role === "doctor" ? "(Doctor)" : "(Front desk)"}
                 </option>

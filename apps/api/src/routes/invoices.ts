@@ -9,7 +9,7 @@ import {
 } from "@clinic/shared";
 import type { InvoiceStatus } from "@clinic/shared";
 import { getDb, type Db } from "../db/client.js";
-import { invoiceItems, invoices, payments } from "../db/schema.js";
+import { invoiceItems, invoices, payments, treatmentRecords } from "../db/schema.js";
 import { deriveInvoiceStatus } from "../lib/billing.js";
 import { badRequest, conflict, notFound } from "../lib/responses.js";
 import { requireAuth } from "../middleware/auth.js";
@@ -83,6 +83,24 @@ invoiceRoutes.post("/", validate("json", createInvoiceSchema), async (c) => {
   const input = c.req.valid("json");
   const db = getDb(c.env);
   const user = c.get("currentUser");
+
+  // Fees are only known once a treatment has actually happened - block
+  // invoicing a patient who has none completed yet, rather than letting a
+  // speculative invoice get created ahead of the work.
+  const [completedTreatment] = await db
+    .select({ id: treatmentRecords.id })
+    .from(treatmentRecords)
+    .where(
+      and(
+        eq(treatmentRecords.patientId, input.patientId),
+        eq(treatmentRecords.status, "completed"),
+        isNull(treatmentRecords.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (!completedTreatment) {
+    throw badRequest("This patient has no completed treatment yet. Add or complete a treatment note before creating an invoice.");
+  }
 
   const id = input.id ?? crypto.randomUUID();
   const now = new Date().toISOString();

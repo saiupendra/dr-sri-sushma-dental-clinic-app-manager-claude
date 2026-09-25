@@ -42,6 +42,16 @@ export function optionalString<T extends z.ZodTypeAny>(schema: T) {
   return z.preprocess((val) => (val === "" ? undefined : val), schema.optional());
 }
 
+/**
+ * A required numeric field backed by a plain HTML number input. Left blank,
+ * such an input submits "" - which z.coerce.number() would otherwise
+ * silently coerce to 0 (Number("") === 0), defeating "required". This
+ * rejects "" as missing instead, so a blank field fails validation.
+ */
+export function requiredCoercedNumber(schema: z.ZodNumber) {
+  return z.preprocess((val) => (val === "" ? undefined : val), schema);
+}
+
 export const apiErrorSchema = z.object({
   error: z.object({
     code: z.string(),

@@ -2,8 +2,13 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { TOOTH_CONDITIONS, type CreateTreatmentRecordInput, type TreatmentRecord } from "@clinic/shared";
 import { usePatient, usePatientToothChart } from "../../hooks/usePatients.js";
-import { useCreateTreatmentRecord, useTreatmentsList, useUpdateTreatmentRecord } from "../../hooks/useTreatments.js";
-import { useFilesList, useUploadFile, fileDownloadUrl } from "../../hooks/useFiles.js";
+import {
+  useCreateTreatmentRecord,
+  useTreatmentsList,
+  useUpdateTreatmentRecord,
+  useUpdateTreatmentStatus,
+} from "../../hooks/useTreatments.js";
+import { useDeleteFile, useFilesList, useUploadFile, fileDownloadUrl } from "../../hooks/useFiles.js";
 import { useInvoicesList } from "../../hooks/useInvoices.js";
 import { useAuth } from "../../auth/useAuth.js";
 import { ToothChart } from "../../components/ToothChart.js";
@@ -176,7 +181,13 @@ function TreatmentsTab({
   const [showForm, setShowForm] = useState(false);
   const { data: treatments, isLoading } = useTreatmentsList(patientId);
   const createTreatment = useCreateTreatmentRecord(patientId);
-  const canWrite = user?.role === "doctor";
+  // Dr.Sri Sushma leads all treatment, so creating a note stays doctor-only.
+  // Flipping a saved note's status is the one everyday edit a doctor still
+  // makes to it; anything else about an already-saved note is admin-only
+  // (see requireRole in treatments.ts) so a correction is always deliberate.
+  const canCreate = user?.role === "doctor";
+  const canToggleStatus = user?.role === "doctor" || user?.role === "admin";
+  const canEdit = user?.role === "admin";
 
   // Arriving here from a tooth click (prefillTooth set) should open the form
   // immediately, pre-filled with that tooth, rather than just landing on a
@@ -192,7 +203,7 @@ function TreatmentsTab({
 
   return (
     <div className="space-y-4">
-      {canWrite && (
+      {canCreate && (
         <div className="flex justify-end">
           <Button size="sm" onClick={() => (showForm ? closeForm() : setShowForm(true))}>
             {showForm ? "Close" : "+ Add treatment note"}
@@ -213,7 +224,13 @@ function TreatmentsTab({
         {!isLoading && treatments?.length === 0 && <EmptyState>No treatment notes yet.</EmptyState>}
         <ul className="divide-y divide-slate-100">
           {treatments?.map((t) => (
-            <TreatmentRow key={t.id} patientId={patientId} treatment={t} canWrite={canWrite} />
+            <TreatmentRow
+              key={t.id}
+              patientId={patientId}
+              treatment={t}
+              canToggleStatus={canToggleStatus}
+              canEdit={canEdit}
+            />
           ))}
         </ul>
       </Card>
@@ -224,13 +241,16 @@ function TreatmentsTab({
 function TreatmentRow({
   patientId,
   treatment,
-  canWrite,
+  canToggleStatus,
+  canEdit,
 }: {
   patientId: string;
   treatment: TreatmentRecord;
-  canWrite: boolean;
+  canToggleStatus: boolean;
+  canEdit: boolean;
 }) {
-  const updateTreatment = useUpdateTreatmentRecord(patientId, treatment.id);
+  const updateStatus = useUpdateTreatmentStatus(patientId, treatment.id);
+  const [editing, setEditing] = useState(false);
   const otherStatus = treatment.status === "planned" ? "completed" : "planned";
 
   return (
@@ -241,26 +261,170 @@ function TreatmentRow({
         </p>
         <div className="flex shrink-0 items-center gap-2">
           <Badge tone={treatment.status === "planned" ? "amber" : "green"}>{treatment.status}</Badge>
-          {canWrite && (
+          {canToggleStatus && (
             <Button
               size="sm"
               variant="secondary"
-              onClick={() => updateTreatment.mutate({ status: otherStatus })}
-              disabled={updateTreatment.isPending}
+              onClick={() => updateStatus.mutate({ status: otherStatus })}
+              disabled={updateStatus.isPending}
             >
               Mark {otherStatus}
+            </Button>
+          )}
+          {canEdit && (
+            <Button size="sm" variant="secondary" onClick={() => setEditing((v) => !v)}>
+              {editing ? "Close" : "Edit"}
             </Button>
           )}
         </div>
       </div>
       <p className="text-xs text-slate-400">{formatDate(treatment.date)}</p>
+      {treatment.condition && (
+        <p className="mt-1 text-slate-600">
+          <span className="font-medium">Condition:</span> {treatment.condition.replace(/_/g, " ")}
+        </p>
+      )}
       {treatment.notes && <p className="mt-1 text-slate-600">{treatment.notes}</p>}
       {treatment.prescription && (
         <p className="mt-1 text-slate-600">
           <span className="font-medium">Prescription:</span> {treatment.prescription}
         </p>
       )}
+      {treatment.beforeTreatmentFileId && (
+        <a
+          href={fileDownloadUrl(treatment.beforeTreatmentFileId)}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-1 inline-block text-brand-700 hover:underline"
+        >
+          Before-treatment photo
+        </a>
+      )}
+      {canEdit && editing && (
+        <TreatmentEditForm patientId={patientId} treatment={treatment} onSaved={() => setEditing(false)} />
+      )}
     </li>
+  );
+}
+
+function TreatmentEditForm({
+  patientId,
+  treatment,
+  onSaved,
+}: {
+  patientId: string;
+  treatment: TreatmentRecord;
+  onSaved: () => void;
+}) {
+  const updateTreatment = useUpdateTreatmentRecord(patientId, treatment.id);
+  const [form, setForm] = useState({
+    procedure: treatment.procedure,
+    date: treatment.date,
+    toothNumber: treatment.toothNumber ?? "",
+    condition: treatment.condition ?? "",
+    notes: treatment.notes ?? "",
+    prescription: treatment.prescription ?? "",
+  });
+  const [error, setError] = useState<string | null>(null);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.procedure.trim()) {
+      setError("Describe the procedure.");
+      return;
+    }
+    if (!form.condition) {
+      setError("Select the tooth condition.");
+      return;
+    }
+    try {
+      await updateTreatment.mutateAsync({
+        procedure: form.procedure,
+        date: form.date,
+        toothNumber: (form.toothNumber || undefined) as never,
+        condition: form.condition as never,
+        notes: form.notes || undefined,
+        prescription: form.prescription || undefined,
+      });
+      onSaved();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not save the changes.");
+    }
+  }
+
+  return (
+    <Card className="mt-2">
+      <form onSubmit={onSubmit} className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label htmlFor={`edit-procedure-${treatment.id}`}>Procedure</Label>
+            <Input
+              id={`edit-procedure-${treatment.id}`}
+              value={form.procedure}
+              onChange={(e) => setForm((f) => ({ ...f, procedure: e.target.value }))}
+            />
+          </div>
+          <div>
+            <Label htmlFor={`edit-date-${treatment.id}`}>Date</Label>
+            <Input
+              id={`edit-date-${treatment.id}`}
+              type="date"
+              value={form.date}
+              onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
+            />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label htmlFor={`edit-tooth-${treatment.id}`}>Tooth (optional)</Label>
+            <Input
+              id={`edit-tooth-${treatment.id}`}
+              value={form.toothNumber}
+              onChange={(e) => setForm((f) => ({ ...f, toothNumber: e.target.value }))}
+            />
+          </div>
+          <div>
+            <Label htmlFor={`edit-condition-${treatment.id}`}>Tooth condition</Label>
+            <Select
+              id={`edit-condition-${treatment.id}`}
+              value={form.condition}
+              onChange={(e) => setForm((f) => ({ ...f, condition: e.target.value }))}
+            >
+              <option value="" disabled>
+                Select condition…
+              </option>
+              {TOOTH_CONDITIONS.map((c) => (
+                <option key={c} value={c}>
+                  {c.replace(/_/g, " ")}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </div>
+        <div>
+          <Label htmlFor={`edit-notes-${treatment.id}`}>Notes (optional)</Label>
+          <Textarea
+            id={`edit-notes-${treatment.id}`}
+            rows={2}
+            value={form.notes}
+            onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+          />
+        </div>
+        <div>
+          <Label htmlFor={`edit-prescription-${treatment.id}`}>Prescription (optional)</Label>
+          <Textarea
+            id={`edit-prescription-${treatment.id}`}
+            rows={2}
+            value={form.prescription}
+            onChange={(e) => setForm((f) => ({ ...f, prescription: e.target.value }))}
+          />
+        </div>
+        <FieldError>{error}</FieldError>
+        <Button type="submit" disabled={updateTreatment.isPending}>
+          {updateTreatment.isPending ? "Saving…" : "Save changes"}
+        </Button>
+      </form>
+    </Card>
   );
 }
 
@@ -278,11 +442,13 @@ function TreatmentForm({
   mutate: ReturnType<typeof useCreateTreatmentRecord>;
 }) {
   const navigate = useNavigate();
+  const uploadPhoto = useUploadFile();
   const [form, setForm] = useState<Partial<CreateTreatmentRecordInput>>({
     date: todayDateInputValue(),
     status: "completed",
     toothNumber: initialTooth,
   });
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
@@ -291,14 +457,25 @@ function TreatmentForm({
       setError("Describe the procedure.");
       return;
     }
+    if (!form.condition) {
+      setError("Select the tooth condition.");
+      return;
+    }
+    if (!photoFile) {
+      setError("Add a before-treatment photo.");
+      return;
+    }
     try {
+      const uploaded = await uploadPhoto.mutateAsync({ patientId, type: "before_treatment", file: photoFile });
       await mutate.mutateAsync({
         ...form,
         patientId,
         staffId,
         procedure: form.procedure,
+        condition: form.condition,
         date: form.date!,
         status: form.status ?? "completed",
+        beforeTreatmentFileId: uploaded.item.id,
       });
       // A "planned" treatment needs a booked visit to actually happen, so go
       // straight to scheduling one instead of just closing the form.
@@ -336,22 +513,30 @@ function TreatmentForm({
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label htmlFor="tooth">Tooth (optional)</Label>
-            <Input
-              id="tooth"
-              placeholder="e.g. 16"
-              value={form.toothNumber ?? ""}
-              onChange={(e) => setForm((f) => ({ ...f, toothNumber: e.target.value || undefined }))}
-            />
+            <Label htmlFor="tooth">Tooth{initialTooth ? "" : " (optional)"}</Label>
+            {initialTooth ? (
+              <p id="tooth" className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                Tooth {initialTooth} · selected from the chart
+              </p>
+            ) : (
+              <Input
+                id="tooth"
+                placeholder="e.g. 16"
+                value={form.toothNumber ?? ""}
+                onChange={(e) => setForm((f) => ({ ...f, toothNumber: e.target.value || undefined }))}
+              />
+            )}
           </div>
           <div>
-            <Label htmlFor="condition">Tooth condition (optional)</Label>
+            <Label htmlFor="condition">Tooth condition</Label>
             <Select
               id="condition"
               value={form.condition ?? ""}
-              onChange={(e) => setForm((f) => ({ ...f, condition: (e.target.value || undefined) as never }))}
+              onChange={(e) => setForm((f) => ({ ...f, condition: e.target.value as never }))}
             >
-              <option value="">No change</option>
+              <option value="" disabled>
+                Select condition…
+              </option>
               {TOOTH_CONDITIONS.map((c) => (
                 <option key={c} value={c}>
                   {c.replace(/_/g, " ")}
@@ -380,9 +565,19 @@ function TreatmentForm({
             onChange={(e) => setForm((f) => ({ ...f, prescription: e.target.value }))}
           />
         </div>
+        <div>
+          <Label htmlFor="beforePhoto">Before-treatment photo</Label>
+          <input
+            id="beforePhoto"
+            type="file"
+            accept=".jpg,.jpeg,.png,.webp,.heic"
+            onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)}
+          />
+          {photoFile && <p className="mt-1 text-xs text-slate-500">{photoFile.name}</p>}
+        </div>
         <FieldError>{error}</FieldError>
-        <Button type="submit" disabled={mutate.isPending}>
-          {mutate.isPending ? "Saving…" : "Save treatment note"}
+        <Button type="submit" disabled={mutate.isPending || uploadPhoto.isPending}>
+          {uploadPhoto.isPending ? "Uploading photo…" : mutate.isPending ? "Saving…" : "Save treatment note"}
         </Button>
       </form>
     </Card>
@@ -390,10 +585,13 @@ function TreatmentForm({
 }
 
 function FilesTab({ patientId }: { patientId: string }) {
+  const { user } = useAuth();
   const { data: files, isLoading } = useFilesList(patientId);
   const upload = useUploadFile();
+  const deleteFile = useDeleteFile(patientId);
   const [type, setType] = useState<"xray" | "photo" | "document" | "other">("xray");
   const [error, setError] = useState<string | null>(null);
+  const canDelete = user?.role === "admin";
 
   async function onFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -443,7 +641,23 @@ function FilesTab({ patientId }: { patientId: string }) {
                   {f.type} · {formatDateTime(f.uploadedAt)}
                 </p>
               </div>
-              <Badge>{Math.round(f.sizeBytes / 1024)} KB</Badge>
+              <div className="flex items-center gap-2">
+                <Badge>{Math.round(f.sizeBytes / 1024)} KB</Badge>
+                {canDelete && (
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    onClick={() => {
+                      if (confirm(`Delete "${f.fileName}"? This can't be undone from here.`)) {
+                        deleteFile.mutate(f.id);
+                      }
+                    }}
+                    disabled={deleteFile.isPending}
+                  >
+                    Delete
+                  </Button>
+                )}
+              </div>
             </li>
           ))}
         </ul>
