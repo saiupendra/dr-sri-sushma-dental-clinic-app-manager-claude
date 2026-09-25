@@ -1,37 +1,35 @@
 # Setup checklist
 
-Everything code-side is done and tested (see the main report). What's left
-needs either the owner's Cloudflare account access or an explicit go-ahead to
-provision real cloud resources — this session built the app but didn't touch
-the live Cloudflare account beyond what's already public. Do these in order;
-each one's "verify" line is how to confirm it worked before moving on.
+Status: steps 1 and 4 are done (2026-09-25, via the Cloudflare API — see
+below). What's left needs either the owner's manual action (a GitHub token
+value can't be generated on your behalf) or a decision on DNS, since that
+touches the same zone the marketing site uses. Each "verify" line confirms a
+step worked before moving to the next.
 
-## 1. Cloudflare resources (Workers/D1/R2)
+## 1. Cloudflare resources (Workers/D1/R2) — ✅ done
 
-This account already runs the marketing site, so it's the same account, just
-new resources in it (`account_id` `416c78ac43f50ba1acc9a2e80e82b45a`, per the
-sister repo).
+Same account as the marketing site (`account_id`
+`416c78ac43f50ba1acc9a2e80e82b45a`). Created via the Cloudflare API (not
+`wrangler`, since this session's sandbox can't reach `api.cloudflare.com`
+directly):
 
-1. Create two D1 databases:
-   ```bash
-   npx wrangler d1 create clinic_db
-   npx wrangler d1 create clinic_db_staging
-   ```
-   Each prints a `database_id` — put it into `apps/api/wrangler.toml`,
-   replacing `REPLACE_WITH_PRODUCTION_D1_DATABASE_ID` /
-   `REPLACE_WITH_STAGING_D1_DATABASE_ID`.
-2. Create two R2 buckets:
-   ```bash
-   npx wrangler r2 bucket create clinic-files
-   npx wrangler r2 bucket create clinic-files-staging
-   ```
-3. Apply migrations to both:
-   ```bash
-   npm run db:migrate:production -w apps/api
-   npm run db:migrate:staging -w apps/api
-   ```
-   **Verify**: `npx wrangler d1 execute clinic_db --remote --command "select name from sqlite_master where type='table'"`
-   lists all 10 tables (staff, sessions, patients, appointments, ...).
+| Resource | id / name |
+|---|---|
+| D1 `clinic_db` (production) | `886abbed-30d6-41c7-8d02-da429900cebb` |
+| D1 `clinic_db_staging` | `6e048be3-ee42-4275-85ae-4295e273d42d` |
+| R2 `clinic-files` (production) | created |
+| R2 `clinic-files-staging` | created |
+
+Both IDs are already filled into `apps/api/wrangler.toml` — `wrangler deploy
+--dry-run` bundles cleanly against both. **Not yet done**: migrations haven't
+been applied to either remote database — that happens the first time
+`.github/workflows/deploy-api.yml` runs (step 3 needs its secrets first), or
+run `npm run db:migrate:production -w apps/api` /
+`npm run db:migrate:staging -w apps/api` yourself once you have a Cloudflare
+API token locally.
+
+**Verify** (after migrations run): `npx wrangler d1 execute clinic_db --remote --command "select name from sqlite_master where type='table'"`
+lists all 10 tables (staff, sessions, patients, appointments, ...).
 
 ## 2. DNS + custom domains
 
@@ -66,26 +64,30 @@ Repo → Settings → Secrets and variables → Actions:
 **Verify**: push a commit to `staging` and check the "Deploy API Worker" run
 in the Actions tab goes green, then `curl https://api-staging.drsrisushmadentalclinic.com/health`.
 
-## 4. Cloudflare Pages project (frontend)
+## 4. Cloudflare Pages project (frontend) — ✅ done
 
-Cloudflare dashboard → Workers & Pages → Create → Pages → connect this
-GitHub repo (`saiupendra/dr-sri-sushma-dental-clinic-app-manager-claude`).
+Created via the Cloudflare API, connected to this GitHub repo (the account's
+existing GitHub App authorization already covered it — no manual OAuth step
+needed):
 
-- **Production branch**: `main`.
-- **Build command**: `npm run build -w apps/web`
-- **Build output directory**: `apps/web/dist`
-- **Root directory**: `/` (repo root — needed so the npm workspace install
-  resolves `@clinic/shared` correctly; do not set it to `apps/web`).
-- **Environment variables** (Settings → Environment variables), one value
-  per environment:
-  - Production: `VITE_API_URL` = `https://api.drsrisushmadentalclinic.com`
-  - Preview (used for the `staging` branch): `VITE_API_URL` = `https://api-staging.drsrisushmadentalclinic.com`
-- After the first deploy, add custom domains: `app.drsrisushmadentalclinic.com`
-  to production, `staging-app.drsrisushmadentalclinic.com` to the `staging`
-  branch preview.
+- Project name: **`clinic-manager`**, currently at `clinic-manager-eh7.pages.dev`.
+- Production branch `main`; build command `npm run build -w apps/web`;
+  output `apps/web/dist`; root directory `/`.
+- `VITE_API_URL` environment variable already set: production →
+  `https://api.drsrisushmadentalclinic.com`, preview (used by the `staging`
+  branch) → `https://api-staging.drsrisushmadentalclinic.com`.
 
-**Verify**: open `https://app.drsrisushmadentalclinic.com` — you should land
-on the one-time setup page (see step 5).
+**Not yet done**: `main` has no commits yet (this app's work is on
+`claude/clinic-management-app`, per this session's branch instructions), so
+there's been no build yet, and the custom domains
+(`app.drsrisushmadentalclinic.com`, `staging-app.drsrisushmadentalclinic.com`)
+aren't attached — that's the DNS step (step 2), which needs your go-ahead
+since it's the same zone as the marketing site.
+
+**Verify**: once `main` has a commit and step 2's domain is attached, open
+`https://app.drsrisushmadentalclinic.com` — you should land on the one-time
+setup page (see step 5). Until then, `https://clinic-manager-eh7.pages.dev`
+will show it (once `main` has something to build).
 
 ## 5. First login
 

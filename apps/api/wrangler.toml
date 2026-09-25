@@ -34,7 +34,7 @@ routes = [
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "clinic_db_staging"
-database_id = "REPLACE_WITH_STAGING_D1_DATABASE_ID"
+database_id = "6e048be3-ee42-4275-85ae-4295e273d42d"
 migrations_dir = "migrations"
 
 [[env.staging.r2_buckets]]
@@ -61,7 +61,7 @@ routes = [
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "clinic_db"
-database_id = "REPLACE_WITH_PRODUCTION_D1_DATABASE_ID"
+database_id = "886abbed-30d6-41c7-8d02-da429900cebb"
 migrations_dir = "migrations"
 
 [[env.production.r2_buckets]]
