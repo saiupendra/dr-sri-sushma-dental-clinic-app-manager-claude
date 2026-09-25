@@ -37,9 +37,13 @@ export const sessions = sqliteTable(
       .notNull()
       .references(() => staff.id),
     userAgent: text("user_agent"),
-    lastUsedAt: text("last_used_at")
-      .notNull()
-      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+    // Nullable, no default: D1 (real Cloudflare D1, unlike the local/Miniflare
+    // simulation) rejects `ALTER TABLE ADD COLUMN` with a non-constant default
+    // ("Cannot add a column with non-constant default") - a restriction that
+    // only surfaced against the real remote database, not local dev. Always
+    // set explicitly by createSession()/verifySession() in lib/session.ts, so
+    // it's never actually null once a session is created or used.
+    lastUsedAt: text("last_used_at"),
     expiresAt: text("expires_at").notNull(),
     createdAt: timestamps.createdAt,
   },

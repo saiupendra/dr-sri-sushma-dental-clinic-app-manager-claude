@@ -9,7 +9,10 @@ export const sessionSummarySchema = z.object({
   userAgent: z.string().nullable(),
   isCurrent: z.boolean(),
   createdAt: z.string(),
-  lastUsedAt: z.string(),
+  // Nullable at the DB level only for a brief window right after this column
+  // was added (see schema.ts) - createSession()/verifySession() always set
+  // it explicitly, so in practice this is never actually null.
+  lastUsedAt: z.string().nullable(),
   expiresAt: z.string(),
 });
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
