@@ -86,9 +86,16 @@ adminRoutes.get("/storage", async (c) => {
   return c.json(stats);
 });
 
-// A ZIP of one CSV per table, covering every patient-related record (not
-// staff accounts, and not the uploaded files themselves — file *metadata* is
-// included, but the binary contents stay in R2; see /storage for totals).
+function patientFolderName(patient: { id: string; name: string }): string {
+  const safeName = patient.name.replace(/[^a-zA-Z0-9_.-]/g, "_").slice(0, 60) || "patient";
+  return `patients/${safeName}_${patient.id.slice(0, 8)}`;
+}
+
+// One folder per patient, covering every patient-related record plus the
+// actual uploaded files (X-rays, photos, documents - pulled from R2, not
+// just their metadata). Staff accounts are still excluded - this is a
+// patient-data export, not an account/system backup (that's the separate
+// nightly backup feature).
 adminRoutes.get("/export", async (c) => {
   const db = getDb(c.env);
   const [patientRows, appointmentRows, treatmentRows, invoiceRows, invoiceItemRows, paymentRows, fileRows, reminderRows] =
@@ -103,9 +110,21 @@ adminRoutes.get("/export", async (c) => {
       db.select().from(reminders),
     ]);
 
-  const zipInput: Record<string, Uint8Array> = {
-    "patients.csv": strToU8(
-      toCsv(patientRows, [
+  const invoiceIdsByPatient = new Map<string, Set<string>>();
+  for (const invoice of invoiceRows) {
+    const set = invoiceIdsByPatient.get(invoice.patientId) ?? new Set<string>();
+    set.add(invoice.id);
+    invoiceIdsByPatient.set(invoice.patientId, set);
+  }
+
+  const zipInput: Record<string, Uint8Array> = {};
+
+  for (const patient of patientRows) {
+    const folder = patientFolderName(patient);
+    const patientInvoiceIds = invoiceIdsByPatient.get(patient.id) ?? new Set<string>();
+
+    zipInput[`${folder}/profile.csv`] = strToU8(
+      toCsv([patient], [
         "id",
         "name",
         "phone",
@@ -114,98 +133,76 @@ adminRoutes.get("/export", async (c) => {
         "sex",
         "address",
         "medicalHistoryNotes",
+        "heightFeet",
+        "weightKg",
+        "bloodPressure",
+        "bloodSugar",
+        "consultationFee",
         "createdBy",
         "createdAt",
         "updatedAt",
         "deletedAt",
       ]),
-    ),
-    "appointments.csv": strToU8(
-      toCsv(appointmentRows, [
-        "id",
-        "patientId",
-        "staffId",
-        "startAt",
-        "endAt",
-        "status",
-        "reasonNote",
-        "createdBy",
-        "createdAt",
-        "updatedAt",
-        "deletedAt",
-      ]),
-    ),
-    "treatments.csv": strToU8(
-      toCsv(treatmentRows, [
-        "id",
-        "patientId",
-        "appointmentId",
-        "toothNumber",
-        "condition",
-        "procedure",
-        "notes",
-        "prescription",
-        "status",
-        "date",
-        "staffId",
-        "createdAt",
-        "updatedAt",
-        "deletedAt",
-      ]),
-    ),
-    "invoices.csv": strToU8(
-      toCsv(invoiceRows, [
-        "id",
-        "patientId",
-        "status",
-        "date",
-        "totalAmount",
-        "amountPaid",
-        "notes",
-        "createdBy",
-        "createdAt",
-        "updatedAt",
-        "deletedAt",
-      ]),
-    ),
-    "invoice_items.csv": strToU8(
-      toCsv(invoiceItemRows, ["id", "invoiceId", "treatmentRecordId", "description", "amount"]),
-    ),
-    "payments.csv": strToU8(
-      toCsv(paymentRows, ["id", "invoiceId", "amount", "method", "paidAt", "note", "recordedBy", "createdAt"]),
-    ),
-    "files.csv": strToU8(
-      toCsv(fileRows, [
-        "id",
-        "patientId",
-        "type",
-        "fileName",
-        "mimeType",
-        "sizeBytes",
-        "notes",
-        "uploadedBy",
-        "uploadedAt",
-        "createdAt",
-        "updatedAt",
-        "deletedAt",
-      ]),
-    ),
-    "reminders.csv": strToU8(
-      toCsv(reminderRows, [
-        "id",
-        "appointmentId",
-        "patientId",
-        "channel",
-        "status",
-        "message",
-        "scheduledFor",
-        "sentAt",
-        "sentBy",
-        "createdAt",
-        "updatedAt",
-      ]),
-    ),
-  };
+    );
+    zipInput[`${folder}/appointments.csv`] = strToU8(
+      toCsv(
+        appointmentRows.filter((a) => a.patientId === patient.id),
+        ["id", "patientId", "staffId", "startAt", "endAt", "status", "reasonNote", "createdBy", "createdAt", "updatedAt", "deletedAt"],
+      ),
+    );
+    zipInput[`${folder}/treatments.csv`] = strToU8(
+      toCsv(
+        treatmentRows.filter((t) => t.patientId === patient.id),
+        ["id", "patientId", "appointmentId", "toothNumber", "condition", "procedure", "notes", "prescription", "status", "date", "staffId", "createdAt", "updatedAt", "deletedAt"],
+      ),
+    );
+    zipInput[`${folder}/invoices.csv`] = strToU8(
+      toCsv(
+        invoiceRows.filter((i) => i.patientId === patient.id),
+        ["id", "patientId", "status", "date", "totalAmount", "amountPaid", "notes", "createdBy", "createdAt", "updatedAt", "deletedAt"],
+      ),
+    );
+    zipInput[`${folder}/invoice_items.csv`] = strToU8(
+      toCsv(
+        invoiceItemRows.filter((item) => patientInvoiceIds.has(item.invoiceId)),
+        ["id", "invoiceId", "treatmentRecordId", "description", "amount"],
+      ),
+    );
+    zipInput[`${folder}/payments.csv`] = strToU8(
+      toCsv(
+        paymentRows.filter((p) => patientInvoiceIds.has(p.invoiceId)),
+        ["id", "invoiceId", "amount", "method", "paidAt", "note", "recordedBy", "createdAt"],
+      ),
+    );
+    zipInput[`${folder}/reminders.csv`] = strToU8(
+      toCsv(
+        reminderRows.filter((r) => r.patientId === patient.id),
+        ["id", "appointmentId", "patientId", "channel", "status", "message", "scheduledFor", "sentAt", "sentBy", "createdAt", "updatedAt"],
+      ),
+    );
+
+    const patientFiles = fileRows.filter((f) => f.patientId === patient.id);
+    zipInput[`${folder}/files.csv`] = strToU8(
+      toCsv(patientFiles, ["id", "type", "fileName", "mimeType", "sizeBytes", "notes", "uploadedBy", "uploadedAt", "createdAt", "updatedAt", "deletedAt"]),
+    );
+  }
+
+  // Fetch every file's actual bytes from R2 concurrently, after the CSVs are
+  // queued, so one missing/slow object can't hold up the rest of the export.
+  const fileFetches = await Promise.all(
+    fileRows.map(async (file) => {
+      const object = await c.env.FILES.get(file.r2Key);
+      if (!object) return null; // metadata exists but the R2 object is gone - skip it, don't fail the whole export
+      const patient = patientRows.find((p) => p.id === file.patientId);
+      if (!patient) return null; // orphaned file row (patient hard-deleted, if that ever happens) - nothing to file it under
+      const safeName = file.fileName.replace(/[^a-zA-Z0-9_.-]/g, "_");
+      const path = `${patientFolderName(patient)}/files/${file.id.slice(0, 8)}_${safeName}`;
+      return { path, bytes: new Uint8Array(await object.arrayBuffer()) };
+    }),
+  );
+  for (const entry of fileFetches) {
+    if (entry) zipInput[entry.path] = entry.bytes;
+  }
 
   const zipped = zipSync(zipInput, { level: 6 });
   const dateStr = new Date().toISOString().slice(0, 10);

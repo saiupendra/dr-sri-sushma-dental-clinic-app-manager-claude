@@ -116,7 +116,7 @@ function SessionRow({ session }: { session: SessionSummary }) {
           {session.isCurrent && <Badge tone="brand">This device</Badge>}
         </div>
         <p className="mt-1 text-sm text-slate-500">
-          {describeDevice(session.userAgent)} · last active {formatRelativeTime(session.lastUsedAt)}
+          {describeDevice(session.userAgent)} · last active {formatRelativeTime(session.lastUsedAt ?? session.createdAt)}
         </p>
       </div>
       {!session.isCurrent && (
