@@ -15,6 +15,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/appointments", label: "Appointments" },
   { to: "/billing", label: "Billing" },
   { to: "/staff", label: "Staff", doctorOnly: true },
+  { to: "/admin", label: "Admin", doctorOnly: true },
 ];
 
 export function Layout() {

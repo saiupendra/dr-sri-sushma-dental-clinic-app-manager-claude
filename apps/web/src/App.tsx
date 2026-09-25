@@ -15,6 +15,7 @@ import { InvoiceListPage } from "./pages/billing/InvoiceListPage.js";
 import { InvoiceFormPage } from "./pages/billing/InvoiceFormPage.js";
 import { InvoiceDetailPage } from "./pages/billing/InvoiceDetailPage.js";
 import { StaffListPage } from "./pages/staff/StaffListPage.js";
+import { AdminPage } from "./pages/admin/AdminPage.js";
 
 export function App() {
   return (
@@ -42,6 +43,7 @@ export function App() {
 
           <Route element={<ProtectedRoute roles={["doctor"]} />}>
             <Route path="staff" element={<StaffListPage />} />
+            <Route path="admin" element={<AdminPage />} />
           </Route>
 
           <Route path="*" element={<NotFoundPage />} />

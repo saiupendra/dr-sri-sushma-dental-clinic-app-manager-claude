@@ -11,6 +11,7 @@ import { fileRoutes } from "./routes/files.js";
 import { reminderRoutes } from "./routes/reminders.js";
 import { healthRoutes } from "./routes/health.js";
 import { internalRoutes } from "./routes/internal.js";
+import { adminRoutes } from "./routes/admin.js";
 import { runNightlyBackup } from "./lib/backup.js";
 import type { AppContext, Env } from "./types.js";
 
@@ -33,6 +34,7 @@ app.route("/api/invoices", invoiceRoutes);
 app.route("/api/files", fileRoutes);
 app.route("/api/reminders", reminderRoutes);
 app.route("/api/internal", internalRoutes);
+app.route("/api/admin", adminRoutes);
 
 app.notFound(notFoundHandler);
 app.onError(errorHandler);
