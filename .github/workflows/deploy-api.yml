@@ -1,0 +1,43 @@
+name: Deploy API Worker
+
+# Requires repo secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID, and the
+# real D1/R2 resource IDs filled into apps/api/wrangler.toml (see
+# docs/setup-checklist.md) — until then this fails safely (no partial state
+# changes) rather than deploying anything. Cloudflare Pages deploys the
+# frontend on its own once the repo is connected there; only the Worker needs
+# this workflow.
+on:
+  push:
+    branches: [main, staging]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TARGET: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build -w packages/shared
+
+      - name: Apply D1 migrations
+        run: npm run db:migrate:$TARGET -w apps/api
+
+      - name: Deploy Worker
+        run: npm run deploy:$TARGET -w apps/api
+
+      - name: Verify health
+        run: |
+          URL="https://api.drsrisushmadentalclinic.com/health"
+          [ "$TARGET" = "staging" ] && URL="https://api-staging.drsrisushmadentalclinic.com/health"
+          curl -sf "$URL" | tee /dev/stderr | grep -q '"status":"ok"'

@@ -1,0 +1,128 @@
+import { useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import { PAYMENT_METHODS, type PaymentMethod } from "@clinic/shared";
+import { useDeletePayment, useInvoice, useRecordPayment } from "../../hooks/useInvoices.js";
+import { usePatient } from "../../hooks/usePatients.js";
+import { formatDate, formatDateTime } from "../../lib/dates.js";
+import { ApiError } from "../../api/client.js";
+import { Badge, Button, Card, FieldError, Input, Label, PageHeader, Select } from "../../components/ui.js";
+
+export function InvoiceDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const { data: invoice, isLoading } = useInvoice(id);
+  const { data: patient } = usePatient(invoice?.patientId);
+  const recordPayment = useRecordPayment(id ?? "");
+  const deletePayment = useDeletePayment(id ?? "");
+
+  const [amount, setAmount] = useState("");
+  const [method, setMethod] = useState<PaymentMethod>("cash");
+  const [error, setError] = useState<string | null>(null);
+
+  if (isLoading) return <p className="text-sm text-slate-400">Loading…</p>;
+  if (!invoice) return <p className="text-sm text-slate-500">Invoice not found.</p>;
+
+  const outstanding = invoice.totalAmount - invoice.amountPaid;
+
+  async function onRecordPayment(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const value = Number(amount);
+    if (!value || value <= 0) {
+      setError("Enter a valid amount.");
+      return;
+    }
+    try {
+      await recordPayment.mutateAsync({ amount: value, method });
+      setAmount("");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not record the payment.");
+    }
+  }
+
+  return (
+    <div className="mx-auto max-w-lg space-y-4">
+      <PageHeader
+        title={`Invoice · ₹${invoice.totalAmount.toFixed(2)}`}
+        subtitle={formatDate(invoice.date)}
+        action={<Badge tone={invoice.status === "paid" ? "green" : invoice.status === "cancelled" ? "red" : "amber"}>{invoice.status.replace("_", " ")}</Badge>}
+      />
+
+      {patient && (
+        <Card>
+          <Link to={`/patients/${patient.id}`} className="font-medium text-brand-700 hover:underline">
+            {patient.name}
+          </Link>
+          <p className="text-sm text-slate-500">{patient.phone}</p>
+        </Card>
+      )}
+
+      <Card>
+        <h2 className="mb-2 text-sm font-semibold text-slate-700">Line items</h2>
+        <ul className="divide-y divide-slate-100 text-sm">
+          {invoice.items.map((item) => (
+            <li key={item.id} className="flex justify-between py-2">
+              <span>{item.description}</span>
+              <span>₹{item.amount.toFixed(2)}</span>
+            </li>
+          ))}
+        </ul>
+        <div className="mt-3 space-y-1 border-t border-slate-100 pt-3 text-sm">
+          <div className="flex justify-between font-medium text-slate-900">
+            <span>Total</span>
+            <span>₹{invoice.totalAmount.toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between text-slate-500">
+            <span>Paid</span>
+            <span>₹{invoice.amountPaid.toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between font-medium text-slate-900">
+            <span>Outstanding</span>
+            <span>₹{Math.max(0, outstanding).toFixed(2)}</span>
+          </div>
+        </div>
+      </Card>
+
+      <Card>
+        <h2 className="mb-2 text-sm font-semibold text-slate-700">Payments</h2>
+        {invoice.payments.length === 0 && <p className="text-sm text-slate-400">No payments recorded yet.</p>}
+        <ul className="divide-y divide-slate-100 text-sm">
+          {invoice.payments.map((payment) => (
+            <li key={payment.id} className="flex items-center justify-between py-2">
+              <div>
+                <span className="font-medium">₹{payment.amount.toFixed(2)}</span>{" "}
+                <span className="text-slate-400">via {payment.method}</span>
+                <p className="text-xs text-slate-400">{formatDateTime(payment.paidAt)}</p>
+              </div>
+              <Button size="sm" variant="ghost" onClick={() => deletePayment.mutate(payment.id)}>
+                Remove
+              </Button>
+            </li>
+          ))}
+        </ul>
+
+        {invoice.status !== "cancelled" && outstanding > 0 && (
+          <form onSubmit={onRecordPayment} className="mt-4 flex items-end gap-2 border-t border-slate-100 pt-4">
+            <div className="flex-1">
+              <Label htmlFor="amount">Record a payment</Label>
+              <Input id="amount" type="number" min={0} step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount" />
+            </div>
+            <div>
+              <Label htmlFor="method">Method</Label>
+              <Select id="method" value={method} onChange={(e) => setMethod(e.target.value as PaymentMethod)}>
+                {PAYMENT_METHODS.map((m) => (
+                  <option key={m} value={m}>
+                    {m.toUpperCase()}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <Button type="submit" disabled={recordPayment.isPending}>
+              Record
+            </Button>
+          </form>
+        )}
+        <FieldError>{error}</FieldError>
+      </Card>
+    </div>
+  );
+}

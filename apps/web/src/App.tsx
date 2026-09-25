@@ -1,0 +1,54 @@
+import { Navigate, Route, Routes } from "react-router-dom";
+import { ProtectedRoute } from "./auth/ProtectedRoute.js";
+import { Layout } from "./components/Layout.js";
+import { LoginPage } from "./pages/LoginPage.js";
+import { SetupPage } from "./pages/SetupPage.js";
+import { DashboardPage } from "./pages/DashboardPage.js";
+import { NotFoundPage } from "./pages/NotFoundPage.js";
+import { PatientListPage } from "./pages/patients/PatientListPage.js";
+import { PatientFormPage } from "./pages/patients/PatientFormPage.js";
+import { PatientDetailPage } from "./pages/patients/PatientDetailPage.js";
+import { AppointmentListPage } from "./pages/appointments/AppointmentListPage.js";
+import { AppointmentFormPage } from "./pages/appointments/AppointmentFormPage.js";
+import { AppointmentDetailPage } from "./pages/appointments/AppointmentDetailPage.js";
+import { InvoiceListPage } from "./pages/billing/InvoiceListPage.js";
+import { InvoiceFormPage } from "./pages/billing/InvoiceFormPage.js";
+import { InvoiceDetailPage } from "./pages/billing/InvoiceDetailPage.js";
+import { StaffListPage } from "./pages/staff/StaffListPage.js";
+
+export function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/setup" element={<SetupPage />} />
+
+      <Route element={<ProtectedRoute />}>
+        <Route element={<Layout />}>
+          <Route index element={<DashboardPage />} />
+
+          <Route path="patients" element={<PatientListPage />} />
+          <Route path="patients/new" element={<PatientFormPage />} />
+          <Route path="patients/:id" element={<PatientDetailPage />} />
+          <Route path="patients/:id/edit" element={<PatientFormPage />} />
+
+          <Route path="appointments" element={<AppointmentListPage />} />
+          <Route path="appointments/new" element={<AppointmentFormPage />} />
+          <Route path="appointments/:id" element={<AppointmentDetailPage />} />
+          <Route path="appointments/:id/edit" element={<AppointmentFormPage />} />
+
+          <Route path="billing" element={<InvoiceListPage />} />
+          <Route path="billing/new" element={<InvoiceFormPage />} />
+          <Route path="billing/:id" element={<InvoiceDetailPage />} />
+
+          <Route element={<ProtectedRoute roles={["doctor"]} />}>
+            <Route path="staff" element={<StaffListPage />} />
+          </Route>
+
+          <Route path="*" element={<NotFoundPage />} />
+        </Route>
+      </Route>
+
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}

@@ -1,0 +1,42 @@
+{
+  "name": "@clinic/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 4173",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --max-warnings=0",
+    "test": "echo 'apps/web has no unit tests yet; see test:e2e' && exit 0",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "gen-icons": "node scripts/generate-placeholder-icons.mjs"
+  },
+  "dependencies": {
+    "@clinic/shared": "*",
+    "@hookform/resolvers": "^3.9.0",
+    "@tanstack/query-async-storage-persister": "^5.59.0",
+    "@tanstack/react-query": "^5.59.0",
+    "@tanstack/react-query-persist-client": "^5.59.0",
+    "idb-keyval": "^6.2.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-hook-form": "^7.53.0",
+    "react-router-dom": "^7.18.4",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.47.2",
+    "@types/react": "^18.3.9",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.13",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.8",
+    "vite-plugin-pwa": "^0.20.5"
+  }
+}

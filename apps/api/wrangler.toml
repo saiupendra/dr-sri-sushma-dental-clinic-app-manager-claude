@@ -1,0 +1,78 @@
+name = "dr-sri-sushma-clinic-api"
+main = "src/index.ts"
+compatibility_date = "2026-09-25"
+
+# Base (no --env) config is used only by `wrangler dev` for local development.
+# Real deploys always pass --env staging or --env production (see package.json).
+[[d1_databases]]
+binding = "DB"
+database_name = "clinic_db_local"
+database_id = "local-dev-placeholder"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "clinic-files-local"
+
+[vars]
+ENVIRONMENT = "development"
+# 5173 is `vite dev`; 4173 is `vite preview`, used by the Playwright e2e suite.
+ALLOWED_ORIGIN = "http://localhost:5173,http://localhost:4173"
+COOKIE_DOMAIN = ""
+
+# ---------------------------------------------------------------------------
+# Staging: mirrors production but with its own D1 database and R2 bucket, so
+# test data never touches real patient records. Fill in database_id and the
+# route once the resources are created (see /docs/setup-checklist.md).
+# ---------------------------------------------------------------------------
+[env.staging]
+name = "dr-sri-sushma-clinic-api-staging"
+routes = [
+  { pattern = "api-staging.drsrisushmadentalclinic.com", custom_domain = true },
+]
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "clinic_db_staging"
+database_id = "REPLACE_WITH_STAGING_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+[[env.staging.r2_buckets]]
+binding = "FILES"
+bucket_name = "clinic-files-staging"
+
+[env.staging.vars]
+ENVIRONMENT = "staging"
+ALLOWED_ORIGIN = "https://staging-app.drsrisushmadentalclinic.com"
+COOKIE_DOMAIN = ".drsrisushmadentalclinic.com"
+
+[[env.staging.triggers.crons]]
+crons = ["0 21 * * *"]
+
+# ---------------------------------------------------------------------------
+# Production. Fill in database_id and bucket name once provisioned.
+# ---------------------------------------------------------------------------
+[env.production]
+name = "dr-sri-sushma-clinic-api-production"
+routes = [
+  { pattern = "api.drsrisushmadentalclinic.com", custom_domain = true },
+]
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "clinic_db"
+database_id = "REPLACE_WITH_PRODUCTION_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+[[env.production.r2_buckets]]
+binding = "FILES"
+bucket_name = "clinic-files"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+ALLOWED_ORIGIN = "https://app.drsrisushmadentalclinic.com"
+COOKIE_DOMAIN = ".drsrisushmadentalclinic.com"
+
+# Nightly backup export (see src/routes/internal/backup.ts). 21:00 UTC = 2:30am IST.
+[[env.production.triggers.crons]]
+crons = ["0 21 * * *"]

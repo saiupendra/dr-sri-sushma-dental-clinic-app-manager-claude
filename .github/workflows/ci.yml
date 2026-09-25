@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build shared package
+        run: npm run build -w packages/shared
+
+      - name: Typecheck
+        run: |
+          npm run typecheck -w apps/api
+          npm run typecheck -w apps/web
+
+      - name: Lint
+        run: |
+          npm run lint -w apps/api
+          npm run lint -w apps/web
+
+      - name: Build (verifies the Worker bundles and the PWA builds)
+        run: |
+          npm run build -w apps/api
+          npm run build -w apps/web
+
+      - name: API unit tests
+        run: npm run test -w apps/api
+
+      - name: Install Playwright browsers
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E tests (against a local D1 + Worker, no Cloudflare account needed)
+        run: npm run test:e2e -w apps/web
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 7

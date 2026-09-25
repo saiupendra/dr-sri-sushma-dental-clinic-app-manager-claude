@@ -1,0 +1,39 @@
+{
+  "name": "dr-sri-sushma-clinic-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Clinic management app for Dr.Sri Sushma Multispeciality Dental Clinic: scheduling, EMR/dental charting, billing, WhatsApp reminders. Offline-capable PWA on Cloudflare Workers/Pages/D1/R2.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build -w packages/shared && npm run build -w apps/api && npm run build -w apps/web",
+    "dev:api": "npm run dev -w apps/api",
+    "dev:web": "npm run dev -w apps/web",
+    "typecheck": "npm run typecheck -w packages/shared && npm run typecheck -w apps/api && npm run typecheck -w apps/web",
+    "lint": "npm run lint -w apps/api && npm run lint -w apps/web",
+    "test": "npm run test -w apps/api && npm run test -w apps/web",
+    "test:e2e": "npm run test:e2e -w apps/web",
+    "db:generate": "npm run db:generate -w apps/api",
+    "db:migrate:local": "npm run db:migrate:local -w apps/api",
+    "db:migrate:remote": "npm run db:migrate:remote -w apps/api",
+    "deploy:api:staging": "npm run deploy:staging -w apps/api",
+    "deploy:api:production": "npm run deploy:production -w apps/api",
+    "deploy:web:staging": "npm run deploy:staging -w apps/web",
+    "deploy:web:production": "npm run deploy:production -w apps/web"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.11.1",
+    "eslint": "^9.11.1",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.12",
+    "globals": "^15.9.0",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.7.0"
+  }
+}

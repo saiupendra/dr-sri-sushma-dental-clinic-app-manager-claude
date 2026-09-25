@@ -1,0 +1,5 @@
+# Copy to .dev.vars for local `wrangler dev` (this file is gitignored).
+# No secrets are required yet: sessions are opaque random tokens hashed in D1,
+# not signed JWTs, so there is no shared secret to manage. Add real secrets
+# here as they come up (e.g. a future WhatsApp Cloud API token) and register
+# them for staging/production with `wrangler secret put NAME --env staging`.
