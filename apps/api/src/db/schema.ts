@@ -120,6 +120,11 @@ export const treatmentRecords = sqliteTable(
     staffId: text("staff_id")
       .notNull()
       .references(() => staff.id),
+    // Nullable, no default (see the sessions.last_used_at comment above for
+    // why: a non-constant default on ALTER TABLE ADD COLUMN fails on real
+    // D1). Nullable for rows saved before this column existed; every new
+    // treatment record is required to set it (see createTreatmentRecordSchema).
+    beforeTreatmentFileId: text("before_treatment_file_id").references(() => files.id),
     deletedAt: text("deleted_at"),
     ...timestamps,
   },

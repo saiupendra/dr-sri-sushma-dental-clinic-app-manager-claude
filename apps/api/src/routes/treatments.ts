@@ -5,10 +5,11 @@ import {
   idParamSchema,
   treatmentListQuerySchema,
   updateTreatmentRecordSchema,
+  updateTreatmentStatusSchema,
 } from "@clinic/shared";
 import { getDb } from "../db/client.js";
-import { treatmentRecords } from "../db/schema.js";
-import { notFound } from "../lib/responses.js";
+import { files, treatmentRecords } from "../db/schema.js";
+import { badRequest, notFound } from "../lib/responses.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { validate } from "../lib/validate.js";
 import type { AppContext } from "../types.js";
@@ -29,6 +30,7 @@ function toTreatment(row: typeof treatmentRecords.$inferSelect) {
     status: row.status,
     date: row.date,
     staffId: row.staffId,
+    beforeTreatmentFileId: row.beforeTreatmentFileId,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -73,6 +75,16 @@ treatmentRoutes.post(
   async (c) => {
     const input = c.req.valid("json");
     const db = getDb(c.env);
+
+    const [photo] = await db
+      .select({ id: files.id, patientId: files.patientId, type: files.type })
+      .from(files)
+      .where(and(eq(files.id, input.beforeTreatmentFileId), isNull(files.deletedAt)))
+      .limit(1);
+    if (!photo || photo.patientId !== input.patientId || photo.type !== "before_treatment") {
+      throw badRequest("beforeTreatmentFileId must be an uploaded before-treatment photo for this patient");
+    }
+
     const id = input.id ?? crypto.randomUUID();
     const now = new Date().toISOString();
 
@@ -83,13 +95,14 @@ treatmentRoutes.post(
         patientId: input.patientId,
         appointmentId: input.appointmentId ?? null,
         toothNumber: input.toothNumber ?? null,
-        condition: input.condition ?? null,
+        condition: input.condition,
         procedure: input.procedure,
         notes: input.notes ?? null,
         prescription: input.prescription ?? null,
         status: input.status,
         date: input.date,
         staffId: input.staffId,
+        beforeTreatmentFileId: input.beforeTreatmentFileId,
         createdAt: now,
         updatedAt: now,
       })
@@ -100,9 +113,44 @@ treatmentRoutes.post(
   },
 );
 
+// Doctor keeps the one everyday edit to a saved record - flipping its
+// status as work actually happens - so charting and invoicing (which
+// requires a completed treatment) don't need an admin in the loop for
+// routine visits. Anything else about a saved record is admin-only, below.
+treatmentRoutes.patch(
+  "/:id/status",
+  requireRole("admin", "doctor"),
+  validate("param", idParamSchema),
+  validate("json", updateTreatmentStatusSchema),
+  async (c) => {
+    const { id } = c.req.valid("param");
+    const { status } = c.req.valid("json");
+    const db = getDb(c.env);
+
+    const [existing] = await db
+      .select({ id: treatmentRecords.id })
+      .from(treatmentRecords)
+      .where(and(eq(treatmentRecords.id, id), isNull(treatmentRecords.deletedAt)))
+      .limit(1);
+    if (!existing) throw notFound("Treatment record");
+
+    await db
+      .update(treatmentRecords)
+      .set({ status, updatedAt: new Date().toISOString() })
+      .where(eq(treatmentRecords.id, id));
+
+    const [row] = await db.select().from(treatmentRecords).where(eq(treatmentRecords.id, id)).limit(1);
+    return c.json({ item: toTreatment(row!) });
+  },
+);
+
+// Editing the content of an already-saved note (as opposed to just its
+// status, above) is admin-only: neither the doctor nor front-desk should be
+// able to alter a clinical record after the fact without going through the
+// admin account, so a correction is always deliberate and accountable.
 treatmentRoutes.patch(
   "/:id",
-  requireRole("doctor"),
+  requireRole("admin"),
   validate("param", idParamSchema),
   validate("json", updateTreatmentRecordSchema),
   async (c) => {

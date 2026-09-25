@@ -109,8 +109,12 @@ export function AppointmentFormPage() {
         <form onSubmit={onSubmit} className="space-y-4">
           <div>
             <Label>Patient</Label>
-            {preselectedPatientId && !isEdit ? (
-              <p className="text-sm font-medium text-slate-900">{effectivePatient?.name}</p>
+            {isEdit || preselectedPatientId ? (
+              // Read-only: an appointment isn't reassigned to a different
+              // patient by editing it, and (for the edit case) PatientPicker
+              // only reads its `value` prop once at mount, so it can't
+              // reflect the patient loading in asynchronously anyway.
+              <p className="text-sm font-medium text-slate-900">{effectivePatient?.name ?? "Loading…"}</p>
             ) : (
               <PatientPicker value={patient} onChange={setPatient} />
             )}
@@ -118,6 +122,11 @@ export function AppointmentFormPage() {
           <div>
             <Label htmlFor="staff">Dentist / staff</Label>
             <Select id="staff" value={staffId} onChange={(e) => setStaffId(e.target.value)}>
+              {isEdit && existing && !bookableStaff?.some((s) => s.id === existing.staffId) && (
+                <option value={existing.staffId} disabled>
+                  {existing.staffName} (no longer available)
+                </option>
+              )}
               {bookableStaff?.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name} {s.role === "doctor" ? "(Doctor)" : "(Front desk)"}

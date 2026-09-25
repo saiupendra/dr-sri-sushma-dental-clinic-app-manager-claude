@@ -1,5 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import type { CreateTreatmentRecordInput, TreatmentRecord, UpdateTreatmentRecordInput } from "@clinic/shared";
+import type {
+  CreateTreatmentRecordInput,
+  TreatmentRecord,
+  UpdateTreatmentRecordInput,
+  UpdateTreatmentStatusInput,
+} from "@clinic/shared";
 import { api } from "../api/client.js";
 import { useOfflineMutation } from "../offline/useOfflineMutation.js";
 
@@ -36,6 +41,7 @@ export function useCreateTreatmentRecord(patientId: string) {
         status: vars.status ?? "completed",
         date: vars.date,
         staffId: vars.staffId,
+        beforeTreatmentFileId: vars.beforeTreatmentFileId,
         createdAt: now,
         updatedAt: now,
       };
@@ -46,12 +52,29 @@ export function useCreateTreatmentRecord(patientId: string) {
   });
 }
 
+// Admin-only edit of a saved record's content - see requireRole("admin") on
+// PATCH /api/treatments/:id.
 export function useUpdateTreatmentRecord(patientId: string, id: string) {
   return useOfflineMutation<UpdateTreatmentRecordInput, { item: TreatmentRecord }>({
     method: "PATCH",
     path: () => `/api/treatments/${id}`,
     body: (vars) => vars,
     entityLabel: () => "Update treatment note",
+    invalidateKeys: () => [
+      ["treatments", "list", patientId],
+      ["patients", "tooth-chart", patientId],
+    ],
+  });
+}
+
+// The one edit a doctor can still make to a saved record - see
+// requireRole("admin", "doctor") on PATCH /api/treatments/:id/status.
+export function useUpdateTreatmentStatus(patientId: string, id: string) {
+  return useOfflineMutation<UpdateTreatmentStatusInput, { item: TreatmentRecord }>({
+    method: "PATCH",
+    path: () => `/api/treatments/${id}/status`,
+    body: (vars) => vars,
+    entityLabel: () => "Update treatment status",
     invalidateKeys: () => [
       ["treatments", "list", patientId],
       ["patients", "tooth-chart", patientId],

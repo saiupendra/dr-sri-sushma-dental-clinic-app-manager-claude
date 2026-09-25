@@ -1,0 +1,1 @@
+ALTER TABLE `treatment_records` ADD `before_treatment_file_id` text REFERENCES files(id);

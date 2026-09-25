@@ -1,5 +1,9 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { test, expect } from "@playwright/test";
 import { loginAsDoctor, uniquePatient } from "./helpers.js";
+
+const BEFORE_TREATMENT_PHOTO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "fixtures/before-treatment.png");
 
 // Critical path: a patient's record (demographics, treatment notes, tooth
 // chart) is entered once and stays accessible — including a re-visit while
@@ -13,6 +17,7 @@ test("records patient details and a treatment note, and stays readable offline",
   await page.fill("#phone", patient.phone);
   await page.fill("#address", "123 Test Street");
   await page.fill("#medicalHistoryNotes", "Allergic to penicillin.");
+  await page.fill("#consultationFee", "500");
   await page.click('button[type="submit"]');
   await expect(page).toHaveURL(/\/patients\/[a-f0-9-]+$/);
   const patientUrl = page.url();
@@ -24,10 +29,13 @@ test("records patient details and a treatment note, and stays readable offline",
   // Clicking a tooth lands on Treatment notes with the add-note form already
   // open and pre-filled with that tooth (it used to just switch tabs and
   // silently drop which tooth was clicked, leaving no way to tell it apart
-  // from opening the form with nothing selected).
-  await expect(page.locator("#tooth")).toHaveValue("16");
+  // from opening the form with nothing selected). The tooth is shown as a
+  // locked display rather than a re-editable input, since it's already been
+  // picked on the chart.
+  await expect(page.locator("#tooth")).toContainText("16");
   await page.fill("#procedure", "Composite filling");
   await page.selectOption("#condition", "filled");
+  await page.setInputFiles("#beforePhoto", BEFORE_TREATMENT_PHOTO);
   await page.getByRole("button", { name: "Save treatment note" }).click();
   await expect(page.getByText("Composite filling")).toBeVisible();
 

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { idSchema, isoDateSchema, optionalString, timestampsSchema } from "./common.js";
+import { idSchema, isoDateSchema, optionalString, requiredCoercedNumber, timestampsSchema } from "./common.js";
 
 export const sexSchema = z.enum(["male", "female", "other", "unspecified"]);
 
@@ -38,7 +38,7 @@ export const createPatientSchema = z.object({
   weightKg: optionalString(z.coerce.number().min(0).max(300)),
   bloodPressure: optionalString(z.string().max(50)),
   bloodSugar: optionalString(z.string().max(100)),
-  consultationFee: optionalString(z.coerce.number().min(0)),
+  consultationFee: requiredCoercedNumber(z.coerce.number().min(0)),
 });
 export type CreatePatientInput = z.infer<typeof createPatientSchema>;
 

@@ -4,8 +4,9 @@ import type { CreateInvoiceItemInput } from "@clinic/shared";
 import { useCreateInvoice } from "../../hooks/useInvoices.js";
 import { PatientPicker, type PickedPatient } from "../../components/PatientPicker.js";
 import { usePatient } from "../../hooks/usePatients.js";
+import { useTreatmentsList } from "../../hooks/useTreatments.js";
 import { ApiError } from "../../api/client.js";
-import { Button, Card, FieldError, Input, Label, PageHeader } from "../../components/ui.js";
+import { Button, Card, EmptyState, FieldError, Input, Label, PageHeader } from "../../components/ui.js";
 
 export function InvoiceFormPage() {
   const [searchParams] = useSearchParams();
@@ -21,6 +22,12 @@ export function InvoiceFormPage() {
   const effectivePatient =
     patient ?? (preselectedPatient ? { id: preselectedPatient.id, name: preselectedPatient.name, phone: preselectedPatient.phone } : null);
 
+  const { data: treatments, isLoading: treatmentsLoading } = useTreatmentsList(effectivePatient?.id);
+  const hasCompletedTreatment = !!treatments?.some((t) => t.status === "completed");
+  // A fee is only known once a treatment has actually happened, so there's
+  // nothing to invoice yet for a patient with no completed treatment.
+  const blockedByNoCompletedTreatment = !!effectivePatient && !treatmentsLoading && !hasCompletedTreatment;
+
   const total = items.reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0);
 
   function updateItem(index: number, patch: Partial<CreateInvoiceItemInput>) {
@@ -32,6 +39,10 @@ export function InvoiceFormPage() {
     setError(null);
     if (!effectivePatient) {
       setError("Choose a patient first.");
+      return;
+    }
+    if (blockedByNoCompletedTreatment) {
+      setError("This patient has no completed treatment yet. Add or complete a treatment note before creating an invoice.");
       return;
     }
     const cleanItems = items.filter((item) => item.description.trim() && Number.isFinite(item.amount) && item.amount >= 0);
@@ -60,7 +71,14 @@ export function InvoiceFormPage() {
               <PatientPicker value={patient} onChange={setPatient} />
             )}
           </div>
-          <div>
+          {effectivePatient && treatmentsLoading && <p className="text-sm text-slate-400">Checking treatment history…</p>}
+          {blockedByNoCompletedTreatment && (
+            <EmptyState>
+              This patient has no completed treatment yet. Add or complete a treatment note before creating an
+              invoice.
+            </EmptyState>
+          )}
+          <div className={blockedByNoCompletedTreatment ? "pointer-events-none opacity-50" : undefined}>
             <Label>Line items</Label>
             <div className="space-y-2">
               {items.map((item, i) => (
@@ -107,7 +125,7 @@ export function InvoiceFormPage() {
           </div>
           <FieldError>{error}</FieldError>
           <div className="flex gap-2">
-            <Button type="submit" disabled={createInvoice.isPending}>
+            <Button type="submit" disabled={createInvoice.isPending || blockedByNoCompletedTreatment}>
               {createInvoice.isPending ? "Saving…" : "Create invoice"}
             </Button>
             <Button type="button" variant="secondary" onClick={() => navigate(-1)}>

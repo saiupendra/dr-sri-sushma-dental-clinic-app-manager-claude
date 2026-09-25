@@ -21,6 +21,9 @@ export const treatmentRecordSchema = z
     status: treatmentStatusSchema,
     date: isoDateSchema,
     staffId: idSchema,
+    // Nullable only for records saved before this was required (see the
+    // schema.ts column comment); every new record must set it.
+    beforeTreatmentFileId: idSchema.nullable(),
   })
   .merge(timestampsSchema);
 export type TreatmentRecord = z.infer<typeof treatmentRecordSchema>;
@@ -30,13 +33,16 @@ export const createTreatmentRecordSchema = z.object({
   patientId: idSchema,
   appointmentId: optionalString(idSchema),
   toothNumber: optionalString(toothNumberSchema),
-  condition: optionalString(z.enum(TOOTH_CONDITIONS)),
+  condition: z.enum(TOOTH_CONDITIONS),
   procedure: z.string().min(1).max(200),
   notes: z.string().max(4000).optional(),
   prescription: z.string().max(2000).optional(),
   status: treatmentStatusSchema.default("completed"),
   date: isoDateSchema,
   staffId: idSchema,
+  // A before-treatment photo must already be uploaded (see the files route)
+  // before it can be referenced here.
+  beforeTreatmentFileId: idSchema,
 });
 export type CreateTreatmentRecordInput = z.infer<typeof createTreatmentRecordSchema>;
 
@@ -44,6 +50,10 @@ export const updateTreatmentRecordSchema = createTreatmentRecordSchema
   .omit({ id: true, patientId: true })
   .partial();
 export type UpdateTreatmentRecordInput = z.infer<typeof updateTreatmentRecordSchema>;
+
+/** PATCH /api/treatments/:id/status: the one edit a doctor can make to an existing record - see requireRole in treatments.ts. */
+export const updateTreatmentStatusSchema = z.object({ status: treatmentStatusSchema });
+export type UpdateTreatmentStatusInput = z.infer<typeof updateTreatmentStatusSchema>;
 
 export const treatmentListQuerySchema = z.object({
   patientId: idSchema,

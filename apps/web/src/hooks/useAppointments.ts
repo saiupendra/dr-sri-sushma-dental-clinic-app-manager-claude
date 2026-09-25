@@ -8,6 +8,7 @@ interface AppointmentListParams {
   to?: string;
   patientId?: string;
   staffId?: string;
+  status?: string;
 }
 
 function toQueryString(params: AppointmentListParams): string {
