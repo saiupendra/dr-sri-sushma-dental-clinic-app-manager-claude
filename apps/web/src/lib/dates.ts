@@ -28,6 +28,22 @@ export function formatDateTime(iso: string): string {
   return `${formatDate(iso)}, ${formatTime(iso)}`;
 }
 
+/**
+ * The clinic's local (Asia/Kolkata) calendar date for a UTC timestamp, as
+ * YYYY-MM-DD - for comparing against a plain local date field like a
+ * treatment record's `date`. A raw `iso.slice(0, 10)` would compare against
+ * the UTC date instead, which is a different calendar day for the ~5.5
+ * hours a day (18:30-23:59 UTC) that fall after midnight IST.
+ */
+export function toLocalDateString(iso: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(iso));
+}
+
 /** For <input type="datetime-local">: local wall-clock time with no timezone suffix. */
 export function toDatetimeLocalValue(iso: string): string {
   const d = new Date(iso);

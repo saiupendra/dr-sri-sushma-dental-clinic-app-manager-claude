@@ -1,14 +1,16 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAppointment } from "../../hooks/useAppointments.js";
 import { useMarkReminderSent, useRemindersList, useSendReminder } from "../../hooks/useReminders.js";
-import { formatDateTime } from "../../lib/dates.js";
-import { Badge, Button, Card, PageHeader, Spinner } from "../../components/ui.js";
+import { useTreatmentsList } from "../../hooks/useTreatments.js";
+import { formatDate, formatDateTime, toLocalDateString } from "../../lib/dates.js";
+import { Badge, Button, Card, EmptyState, PageHeader, Spinner } from "../../components/ui.js";
 
 export function AppointmentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: appointment, isLoading } = useAppointment(id);
   const { data: reminders } = useRemindersList(id);
+  const { data: treatments } = useTreatmentsList(appointment?.patientId);
   const sendReminder = useSendReminder(id ?? "");
   const markSent = useMarkReminderSent(id ?? "");
 
@@ -57,6 +59,44 @@ export function AppointmentDetailPage() {
             </>
           )}
         </dl>
+      </Card>
+
+      <Card>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-slate-700">Treatment notes from this visit</h2>
+          <Link
+            to={`/patients/${appointment.patientId}?tab=treatments`}
+            className="text-sm font-medium text-brand-700 hover:underline"
+          >
+            All treatment notes →
+          </Link>
+        </div>
+        {(() => {
+          const visitDate = toLocalDateString(appointment.startAt);
+          const sameDay = treatments?.filter((t) => t.date === visitDate) ?? [];
+          if (sameDay.length === 0) {
+            return (
+              <EmptyState>
+                No treatment note dated to this visit yet. Add one from the patient&apos;s Treatment notes tab.
+              </EmptyState>
+            );
+          }
+          return (
+            <ul className="divide-y divide-slate-100">
+              {sameDay.map((t) => (
+                <li key={t.id} className="py-2 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-medium text-slate-900">
+                      {t.procedure} {t.toothNumber && <span className="text-slate-400">· Tooth {t.toothNumber}</span>}
+                    </p>
+                    <Badge tone={t.status === "planned" ? "amber" : "green"}>{t.status}</Badge>
+                  </div>
+                  <p className="text-xs text-slate-400">{formatDate(t.date)}</p>
+                </li>
+              ))}
+            </ul>
+          );
+        })()}
       </Card>
 
       <Card>

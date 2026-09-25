@@ -23,3 +23,11 @@ export const storageStatsSchema = z.object({
   totalBytes: z.number().int().nonnegative(),
 });
 export type StorageStats = z.infer<typeof storageStatsSchema>;
+
+/** A nightly (or on-demand) full-data JSON snapshot in R2 - see runNightlyBackup. */
+export const backupSummarySchema = z.object({
+  date: z.string(), // YYYY-MM-DD, also the download key
+  sizeBytes: z.number().int().nonnegative(),
+  uploaded: z.string(), // ISO timestamp
+});
+export type BackupSummary = z.infer<typeof backupSummarySchema>;

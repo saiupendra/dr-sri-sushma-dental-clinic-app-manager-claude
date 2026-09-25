@@ -1,5 +1,14 @@
-import { ROLE_LABELS, type SessionSummary } from "@clinic/shared";
-import { adminExportUrl, useActiveSessions, useRevokeSession, useStorageStats } from "../../hooks/useAdmin.js";
+import { ROLE_LABELS, type BackupSummary, type SessionSummary } from "@clinic/shared";
+import {
+  adminExportUrl,
+  backupDownloadUrl,
+  useActiveSessions,
+  useBackupsList,
+  useRevokeSession,
+  useStorageStats,
+  useTriggerBackup,
+} from "../../hooks/useAdmin.js";
+import { formatDateTime } from "../../lib/dates.js";
 import { Badge, Button, Card, PageHeader } from "../../components/ui.js";
 
 function describeDevice(userAgent: string | null): string {
@@ -53,6 +62,8 @@ function formatRelativeTime(iso: string): string {
 export function AdminPage() {
   const { data: sessions, isLoading: sessionsLoading } = useActiveSessions();
   const { data: storage, isLoading: storageLoading } = useStorageStats();
+  const { data: backups, isLoading: backupsLoading } = useBackupsList();
+  const triggerBackup = useTriggerBackup();
 
   return (
     <div className="space-y-6">
@@ -85,6 +96,44 @@ export function AdminPage() {
           ))}
         </ul>
         {sessions?.length === 0 && <p className="text-sm text-slate-400">No active sessions.</p>}
+      </Card>
+
+      <Card>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-slate-900">Backups</h2>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => triggerBackup.mutate()}
+            disabled={triggerBackup.isPending}
+          >
+            {triggerBackup.isPending ? "Backing up…" : "Back up now"}
+          </Button>
+        </div>
+        <p className="mb-3 text-sm text-slate-500">
+          A full JSON snapshot of every table runs automatically every night. Download one below and save it
+          wherever you keep backups (Google Drive, a laptop, …) — there's no automatic upload to Drive from here.
+        </p>
+        {backupsLoading && <p className="text-sm text-slate-400">Loading…</p>}
+        {!backupsLoading && backups?.length === 0 && <p className="text-sm text-slate-400">No backups yet.</p>}
+        <ul className="divide-y divide-slate-100">
+          {backups?.map((backup: BackupSummary) => (
+            <li key={backup.date} className="flex items-center justify-between py-2 text-sm">
+              <div>
+                <p className="font-medium text-slate-900">{backup.date}</p>
+                <p className="text-xs text-slate-400">
+                  {formatDateTime(backup.uploaded)} · {formatBytes(backup.sizeBytes)}
+                </p>
+              </div>
+              <a
+                href={backupDownloadUrl(backup.date)}
+                className="inline-flex items-center justify-center rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              >
+                Download
+              </a>
+            </li>
+          ))}
+        </ul>
       </Card>
 
       <Card>

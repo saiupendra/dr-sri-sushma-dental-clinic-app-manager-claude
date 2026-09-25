@@ -76,10 +76,15 @@ fileRoutes.get("/:id/download", validate("param", idParamSchema), async (c) => {
   const object = await c.env.FILES.get(row.r2Key);
   if (!object) throw notFound("File contents");
 
+  // Always a download, never an inline view - a clinical photo or X-ray
+  // opening full-screen in the browser tab isn't what staff want when they
+  // click a file in the list. This has no effect on <img src=...> (the
+  // profile picture): Content-Disposition only governs a direct/top-level
+  // navigation to the URL, not an element fetching it for rendering.
   return new Response(object.body, {
     headers: {
       "Content-Type": row.mimeType,
-      "Content-Disposition": `inline; filename="${encodeURIComponent(row.fileName)}"`,
+      "Content-Disposition": `attachment; filename="${encodeURIComponent(row.fileName)}"`,
       "Cache-Control": "private, max-age=3600",
     },
   });
