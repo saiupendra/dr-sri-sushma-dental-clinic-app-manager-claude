@@ -20,6 +20,7 @@ const CONDITION_STYLES: Record<ToothCondition, string> = {
   extraction_planned: "bg-orange-100 border-orange-400 text-orange-800",
   impacted: "bg-pink-100 border-pink-400 text-pink-800",
   fractured: "bg-rose-100 border-rose-400 text-rose-800",
+  other: "bg-gray-100 border-gray-400 border-dashed text-gray-700",
 };
 
 const CONDITION_LABELS: Record<ToothCondition, string> = {
@@ -33,16 +34,32 @@ const CONDITION_LABELS: Record<ToothCondition, string> = {
   extraction_planned: "Extraction planned",
   impacted: "Impacted",
   fractured: "Fractured",
+  other: "Other",
 };
 
-function Tooth({ toothNumber, entry, onSelect }: { toothNumber: string; entry?: ToothChartEntry; onSelect?: (tooth: string) => void }) {
+function Tooth({
+  toothNumber,
+  entry,
+  selected,
+  onToggle,
+}: {
+  toothNumber: string;
+  entry?: ToothChartEntry;
+  selected: boolean;
+  onToggle: (tooth: string) => void;
+}) {
   const condition = entry?.condition ?? "healthy";
+  const conditionLabel =
+    condition === "other" && entry?.conditionOther ? `Other — ${entry.conditionOther}` : CONDITION_LABELS[condition];
   return (
     <button
       type="button"
-      onClick={() => onSelect?.(toothNumber)}
-      title={`Tooth ${toothNumber}: ${CONDITION_LABELS[condition]}`}
-      className={`flex h-11 w-9 flex-col items-center justify-center rounded-md border text-[11px] font-semibold transition hover:ring-2 hover:ring-brand-300 ${CONDITION_STYLES[condition]}`}
+      onClick={() => onToggle(toothNumber)}
+      title={`Tooth ${toothNumber}: ${conditionLabel}`}
+      aria-pressed={selected}
+      className={`flex h-11 w-9 flex-col items-center justify-center rounded-md border text-[11px] font-semibold transition hover:ring-2 hover:ring-brand-300 ${CONDITION_STYLES[condition]} ${
+        selected ? "ring-2 ring-brand-600 ring-offset-1" : ""
+      }`}
     >
       {toothNumber}
     </button>
@@ -51,10 +68,13 @@ function Tooth({ toothNumber, entry, onSelect }: { toothNumber: string; entry?: 
 
 export function ToothChart({
   entries,
-  onSelectTooth,
+  selectedTeeth,
+  onToggleTooth,
 }: {
   entries: ToothChartEntry[];
-  onSelectTooth?: (tooth: string) => void;
+  /** Teeth currently picked for a single treatment session - see PatientDetailPage's ToothChartTab. */
+  selectedTeeth: Set<string>;
+  onToggleTooth: (tooth: string) => void;
 }) {
   const byTooth = new Map(entries.map((e) => [e.toothNumber, e]));
 
@@ -63,12 +83,24 @@ export function ToothChart({
       <div className="flex flex-col items-center gap-2 overflow-x-auto pb-2">
         <div className="flex gap-1">
           {UPPER_ROW.map((tooth) => (
-            <Tooth key={tooth} toothNumber={tooth} entry={byTooth.get(tooth)} onSelect={onSelectTooth} />
+            <Tooth
+              key={tooth}
+              toothNumber={tooth}
+              entry={byTooth.get(tooth)}
+              selected={selectedTeeth.has(tooth)}
+              onToggle={onToggleTooth}
+            />
           ))}
         </div>
         <div className="flex gap-1">
           {LOWER_ROW.map((tooth) => (
-            <Tooth key={tooth} toothNumber={tooth} entry={byTooth.get(tooth)} onSelect={onSelectTooth} />
+            <Tooth
+              key={tooth}
+              toothNumber={tooth}
+              entry={byTooth.get(tooth)}
+              selected={selectedTeeth.has(tooth)}
+              onToggle={onToggleTooth}
+            />
           ))}
         </div>
       </div>

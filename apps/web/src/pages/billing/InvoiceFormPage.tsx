@@ -23,6 +23,8 @@ export function InvoiceFormPage() {
   // /api/invoices), so this can legitimately stay empty.
   const [items, setItems] = useState<InvoiceDraftItem[]>([]);
   const [instructions, setInstructions] = useState("");
+  const [discountPercent, setDiscountPercent] = useState("");
+  const [discountAmount, setDiscountAmount] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const effectivePatient =
@@ -39,7 +41,11 @@ export function InvoiceFormPage() {
   // nothing to invoice yet for a patient with no completed treatment.
   const blockedByNoCompletedTreatment = !!effectivePatient && !treatmentsLoading && !hasCompletedTreatment;
 
-  const total = consultationFee + items.reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0);
+  const subtotal = consultationFee + items.reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0);
+  const discountPercentValue = Math.min(100, Math.max(0, Number(discountPercent) || 0));
+  const discountAmountValue = Math.max(0, Number(discountAmount) || 0);
+  const discountValue = Math.min(subtotal, subtotal * (discountPercentValue / 100) + discountAmountValue);
+  const total = Math.round((subtotal - discountValue) * 100) / 100;
 
   function updateItem(index: number, patch: Partial<InvoiceDraftItem>) {
     setItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...patch } : item)));
@@ -69,6 +75,8 @@ export function InvoiceFormPage() {
         patientId: effectivePatient.id,
         items: cleanItems.map(({ unitCost: _unitCost, ...item }) => item),
         notes: instructions.trim(),
+        discountPercent: discountPercentValue,
+        discountAmount: discountAmountValue,
       });
       navigate(`/billing/${result.item.id}`);
     } catch (err) {
@@ -165,6 +173,37 @@ export function InvoiceFormPage() {
               + Add line
             </Button>
           </div>
+          <div className={blockedByNoCompletedTreatment ? "pointer-events-none opacity-50" : undefined}>
+            <Label>Discount (optional)</Label>
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <Label htmlFor="discountPercent">Percentage</Label>
+                <Input
+                  id="discountPercent"
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  placeholder="0"
+                  value={discountPercent}
+                  onChange={(e) => setDiscountPercent(e.target.value)}
+                />
+              </div>
+              <div className="flex-1">
+                <Label htmlFor="discountAmount">Cash amount (₹)</Label>
+                <Input
+                  id="discountAmount"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="0"
+                  value={discountAmount}
+                  onChange={(e) => setDiscountAmount(e.target.value)}
+                />
+              </div>
+            </div>
+            <p className="mt-1 text-xs text-slate-400">Both can be used together - they're combined, capped at the invoice subtotal.</p>
+          </div>
           <div>
             <Label htmlFor="instructions">Instructions (optional)</Label>
             <Textarea
@@ -176,9 +215,23 @@ export function InvoiceFormPage() {
               placeholder="Aftercare or payment instructions printed on the invoice"
             />
           </div>
-          <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-sm font-semibold text-slate-900">
-            <span>Total</span>
-            <span>₹{total.toFixed(2)}</span>
+          <div className="space-y-1 border-t border-slate-100 pt-3 text-sm">
+            {discountValue > 0 && (
+              <>
+                <div className="flex items-center justify-between text-slate-600">
+                  <span>Subtotal</span>
+                  <span>₹{subtotal.toFixed(2)}</span>
+                </div>
+                <div className="flex items-center justify-between text-slate-600">
+                  <span>Discount</span>
+                  <span>- ₹{discountValue.toFixed(2)}</span>
+                </div>
+              </>
+            )}
+            <div className="flex items-center justify-between font-semibold text-slate-900">
+              <span>Total</span>
+              <span>₹{total.toFixed(2)}</span>
+            </div>
           </div>
           <FieldError>{error}</FieldError>
           <div className="flex gap-2">

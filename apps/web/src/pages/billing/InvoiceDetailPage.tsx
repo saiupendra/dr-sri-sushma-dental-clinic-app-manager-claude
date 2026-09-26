@@ -32,6 +32,8 @@ export function InvoiceDetailPage() {
   if (!invoice) return <p className="text-sm text-slate-500">Invoice not found.</p>;
 
   const outstanding = invoice.totalAmount - invoice.amountPaid;
+  const subtotal = invoice.items.reduce((sum, item) => sum + item.amount, 0);
+  const discountValue = Math.max(0, Math.round((subtotal - invoice.totalAmount) * 100) / 100);
 
   function onSendViaWhatsApp() {
     if (!invoice || !patient || !invoice.shareToken) return;
@@ -115,6 +117,20 @@ export function InvoiceDetailPage() {
           </table>
         </div>
         <div className="mt-4 ml-auto max-w-xs space-y-2 text-sm">
+          {discountValue > 0 && (
+            <>
+              <div className="flex justify-between text-slate-600"><span>Subtotal</span><span>₹{subtotal.toFixed(2)}</span></div>
+              <div className="flex justify-between text-slate-600">
+                <span>
+                  Discount
+                  {invoice.discountPercent > 0 || invoice.discountAmount > 0
+                    ? ` (${[invoice.discountPercent > 0 ? `${invoice.discountPercent}%` : null, invoice.discountAmount > 0 ? `₹${invoice.discountAmount.toFixed(2)}` : null].filter(Boolean).join(" + ")})`
+                    : ""}
+                </span>
+                <span>- ₹{discountValue.toFixed(2)}</span>
+              </div>
+            </>
+          )}
           <div className="flex justify-between font-semibold text-slate-900"><span>Total Gross Amt</span><span>₹{invoice.totalAmount.toFixed(2)}</span></div>
           <div className="flex justify-between text-slate-600"><span>Received</span><span>₹{invoice.amountPaid.toFixed(2)}</span></div>
           <div className="flex justify-between border-t border-slate-200 pt-2 font-semibold text-slate-900"><span>Balance due</span><span>₹{Math.max(0, outstanding).toFixed(2)}</span></div>

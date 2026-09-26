@@ -56,6 +56,10 @@ export const invoiceSchema = z
     date: isoDateTimeSchema,
     totalAmount: z.number().nonnegative(),
     amountPaid: z.number().nonnegative(),
+    // Raw inputs, kept alongside totalAmount (which is already net of both)
+    // so the UI/PDF can show what discount was actually applied.
+    discountPercent: z.number().nonnegative(),
+    discountAmount: z.number().nonnegative(),
     notes: z.string().max(2000).nullable(),
     createdBy: idSchema.nullable(),
     // Unguessable, set at creation - the frontend uses it to build the
@@ -75,6 +79,10 @@ export const createInvoiceSchema = z.object({
   // the patient's own record (see POST /api/invoices), so an invoice with
   // no *additional* charges is still a valid, non-empty invoice.
   items: z.array(createInvoiceItemSchema),
+  // Both may be set together (e.g. 10% off, then a further ₹100 off) - the
+  // server caps their combined effect at the subtotal, never a negative total.
+  discountPercent: z.number().min(0).max(100).optional(),
+  discountAmount: z.number().nonnegative().optional(),
 });
 export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
 

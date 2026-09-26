@@ -45,6 +45,16 @@ async function withConsultationFee(db: Db, patientId: string, items: InvoiceItem
   return [consultationFeeItem, ...items];
 }
 
+/**
+ * Percentage and cash discount can both be set at once (e.g. 10% off, then a
+ * further flat ₹100 off) - their combined effect is capped at the subtotal,
+ * so a heavy-handed discount can zero out an invoice but never go negative.
+ */
+function applyDiscount(subtotal: number, discountPercent: number, discountAmount: number) {
+  const discount = Math.min(subtotal, subtotal * (discountPercent / 100) + discountAmount);
+  return Math.round((subtotal - discount) * 100) / 100;
+}
+
 async function loadInvoiceDetail(db: Db, id: string) {
   const [invoice] = await db
     .select()
@@ -65,6 +75,8 @@ async function loadInvoiceDetail(db: Db, id: string) {
     date: invoice.date,
     totalAmount: invoice.totalAmount,
     amountPaid: invoice.amountPaid,
+    discountPercent: invoice.discountPercent,
+    discountAmount: invoice.discountAmount,
     notes: invoice.notes,
     createdBy: invoice.createdBy,
     createdAt: invoice.createdAt,
@@ -90,6 +102,8 @@ export async function loadInvoicePdfBytes(db: Db, id: string, requireShareToken?
       status: invoices.status,
       totalAmount: invoices.totalAmount,
       amountPaid: invoices.amountPaid,
+      discountPercent: invoices.discountPercent,
+      discountAmount: invoices.discountAmount,
       notes: invoices.notes,
       shareToken: invoices.shareToken,
       patientName: patients.name,
@@ -131,6 +145,8 @@ export async function loadInvoicePdfBytes(db: Db, id: string, requireShareToken?
     treatedByNames = [...new Set(doctorRows.map((r) => r.name))];
   }
 
+  const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
+
   return generateInvoicePdf({
     invoiceId: row.invoiceId,
     date: row.date,
@@ -138,6 +154,9 @@ export async function loadInvoicePdfBytes(db: Db, id: string, requireShareToken?
     patientName: row.patientName,
     patientPhone: row.patientPhone,
     items,
+    subtotal,
+    discountPercent: row.discountPercent,
+    discountAmount: row.discountAmount,
     totalAmount: row.totalAmount,
     amountPaid: row.amountPaid,
     payments: invoicePayments,
@@ -222,7 +241,10 @@ invoiceRoutes.post("/", validate("json", createInvoiceSchema), async (c) => {
   const id = input.id ?? crypto.randomUUID();
   const now = new Date().toISOString();
   const items = await withConsultationFee(db, input.patientId, input.items);
-  const totalAmount = items.reduce((sum, item) => sum + item.amount, 0);
+  const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
+  const discountPercent = input.discountPercent ?? 0;
+  const discountAmount = input.discountAmount ?? 0;
+  const totalAmount = applyDiscount(subtotal, discountPercent, discountAmount);
 
   const itemRows = items.map((item) => ({
     id: item.id ?? crypto.randomUUID(),
@@ -245,6 +267,8 @@ invoiceRoutes.post("/", validate("json", createInvoiceSchema), async (c) => {
       date: now,
       totalAmount,
       amountPaid: 0,
+      discountPercent,
+      discountAmount,
       notes: input.notes ?? null,
       createdBy: user.id,
       shareToken: randomToken(24),
@@ -281,7 +305,11 @@ invoiceRoutes.patch(
 
     if (input.items) {
       const items = await withConsultationFee(db, existing.patientId, input.items);
-      totalAmount = items.reduce((sum, item) => sum + item.amount, 0);
+      const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
+      // Discount is set only at creation (see POST /) - a later items edit
+      // keeps whatever discount the invoice already had, recomputed against
+      // the new subtotal, rather than silently dropping it.
+      totalAmount = applyDiscount(subtotal, existing.discountPercent, existing.discountAmount);
       const itemRows = items.map((item) => ({
         id: item.id ?? crypto.randomUUID(),
         invoiceId: id,

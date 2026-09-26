@@ -28,7 +28,7 @@ export function PatientDetailPage() {
   const requestedTab = searchParams.get("tab");
   const initialTab: Tab = TAB_VALUES.includes(requestedTab as Tab) ? (requestedTab as Tab) : "overview";
   const [tab, setTab] = useState<Tab>(initialTab);
-  const [prefillTooth, setPrefillTooth] = useState<string | null>(null);
+  const [prefillTeeth, setPrefillTeeth] = useState<string[]>([]);
   const { data: patient, isLoading } = usePatient(id);
 
   if (isLoading) return <p className="text-sm text-slate-400">Loading…</p>;
@@ -101,14 +101,14 @@ export function PatientDetailPage() {
       {tab === "chart" && (
         <ToothChartTab
           patientId={id!}
-          onSelectTooth={(tooth) => {
-            setPrefillTooth(tooth);
+          onNext={(teeth) => {
+            setPrefillTeeth(teeth);
             setTab("treatments");
           }}
         />
       )}
       {tab === "treatments" && (
-        <TreatmentsTab patientId={id!} prefillTooth={prefillTooth} onPrefillConsumed={() => setPrefillTooth(null)} />
+        <TreatmentsTab patientId={id!} prefillTeeth={prefillTeeth} onPrefillConsumed={() => setPrefillTeeth([])} />
       )}
       {tab === "files" && <FilesTab patientId={id!} />}
       {tab === "billing" && <BillingTab patientId={id!} />}
@@ -162,26 +162,45 @@ function ProfilePhoto({ patientId, patientName }: { patientId: string; patientNa
   );
 }
 
-function ToothChartTab({ patientId, onSelectTooth }: { patientId: string; onSelectTooth: (tooth: string) => void }) {
+function ToothChartTab({ patientId, onNext }: { patientId: string; onNext: (teeth: string[]) => void }) {
   const { data: chart, isLoading } = usePatientToothChart(patientId);
+  // Local to this tab: it remounts (and so resets) whenever the user leaves
+  // and comes back to "Tooth chart", which is the reset behavior we want -
+  // a fresh pick each time, never a stale selection from a previous visit.
+  const [selectedTeeth, setSelectedTeeth] = useState<Set<string>>(new Set());
+
+  function toggleTooth(tooth: string) {
+    setSelectedTeeth((prev) => {
+      const next = new Set(prev);
+      if (next.has(tooth)) next.delete(tooth);
+      else next.add(tooth);
+      return next;
+    });
+  }
+
   return (
     <Card>
       {isLoading && <p className="text-sm text-slate-400">Loading…</p>}
-      {chart && <ToothChart entries={chart} onSelectTooth={onSelectTooth} />}
-      <p className="mt-4 text-xs text-slate-400">
-        Shows the most recent condition recorded per tooth. Tap a tooth to add a treatment note against it.
-      </p>
+      {chart && <ToothChart entries={chart} selectedTeeth={selectedTeeth} onToggleTooth={toggleTooth} />}
+      <div className="mt-4 flex items-center justify-between gap-3">
+        <p className="text-xs text-slate-400">
+          Tap the teeth you're about to treat, then Next - one treatment note can cover several teeth at once.
+        </p>
+        <Button size="sm" disabled={selectedTeeth.size === 0} onClick={() => onNext(Array.from(selectedTeeth))}>
+          Next{selectedTeeth.size > 0 ? ` (${selectedTeeth.size})` : ""}
+        </Button>
+      </div>
     </Card>
   );
 }
 
 function TreatmentsTab({
   patientId,
-  prefillTooth,
+  prefillTeeth,
   onPrefillConsumed,
 }: {
   patientId: string;
-  prefillTooth: string | null;
+  prefillTeeth: string[];
   onPrefillConsumed: () => void;
 }) {
   const { user } = useAuth();
@@ -196,14 +215,14 @@ function TreatmentsTab({
   const canToggleStatus = user?.role === "doctor" || user?.role === "admin";
   const canEdit = user?.role === "admin";
 
-  // Arriving here from a tooth click (prefillTooth set) should open the form
-  // immediately, pre-filled with that tooth, rather than just landing on a
-  // tab with no indication of which tooth was picked or how to record it.
-  // Only for whoever can actually create one - otherwise this would open a
-  // form that just 403s on submit.
+  // Arriving here via the chart's Next button (prefillTeeth set) should open
+  // the form immediately, pre-filled with those teeth, rather than just
+  // landing on a tab with no indication of which teeth were picked or how to
+  // record them. Only for whoever can actually create one - otherwise this
+  // would open a form that just 403s on submit.
   useEffect(() => {
-    if (prefillTooth && canCreate) setShowForm(true);
-  }, [prefillTooth, canCreate]);
+    if (prefillTeeth.length > 0 && canCreate) setShowForm(true);
+  }, [prefillTeeth, canCreate]);
 
   function closeForm() {
     setShowForm(false);
@@ -223,7 +242,7 @@ function TreatmentsTab({
         <TreatmentForm
           patientId={patientId}
           staffId={user!.id}
-          initialTooth={prefillTooth ?? undefined}
+          initialTeeth={prefillTeeth}
           onSaved={closeForm}
           mutate={createTreatment}
         />
@@ -290,7 +309,10 @@ function TreatmentRow({
       <p className="text-xs text-slate-400">{formatDate(treatment.date)}</p>
       {treatment.condition && (
         <p className="mt-1 text-slate-600">
-          <span className="font-medium">Condition:</span> {treatment.condition.replace(/_/g, " ")}
+          <span className="font-medium">Condition:</span>{" "}
+          {treatment.condition === "other"
+            ? `Other — ${treatment.conditionOther}`
+            : treatment.condition.replace(/_/g, " ")}
         </p>
       )}
       {treatment.notes && <p className="mt-1 text-slate-600">{treatment.notes}</p>}
@@ -332,6 +354,7 @@ function TreatmentEditForm({
     date: treatment.date,
     toothNumber: treatment.toothNumber ?? "",
     condition: treatment.condition ?? "",
+    conditionOther: treatment.conditionOther ?? "",
     notes: treatment.notes ?? "",
     prescription: treatment.prescription ?? "",
   });
@@ -347,12 +370,17 @@ function TreatmentEditForm({
       setError("Select the tooth condition.");
       return;
     }
+    if (form.condition === "other" && !form.conditionOther.trim()) {
+      setError("Describe the condition.");
+      return;
+    }
     try {
       await updateTreatment.mutateAsync({
         procedure: form.procedure,
         date: form.date,
         toothNumber: (form.toothNumber || undefined) as never,
         condition: form.condition as never,
+        conditionOther: form.condition === "other" ? form.conditionOther.trim() : undefined,
         notes: form.notes || undefined,
         prescription: form.prescription || undefined,
       });
@@ -411,6 +439,17 @@ function TreatmentEditForm({
             </Select>
           </div>
         </div>
+        {form.condition === "other" && (
+          <div>
+            <Label htmlFor={`edit-condition-other-${treatment.id}`}>Describe condition</Label>
+            <Input
+              id={`edit-condition-other-${treatment.id}`}
+              value={form.conditionOther}
+              onChange={(e) => setForm((f) => ({ ...f, conditionOther: e.target.value }))}
+              placeholder="e.g. Chipped enamel, cosmetic wear"
+            />
+          </div>
+        )}
         <div>
           <Label htmlFor={`edit-notes-${treatment.id}`}>Notes (optional)</Label>
           <Textarea
@@ -441,25 +480,27 @@ function TreatmentEditForm({
 function TreatmentForm({
   patientId,
   staffId,
-  initialTooth,
+  initialTeeth,
   onSaved,
   mutate,
 }: {
   patientId: string;
   staffId: string;
-  initialTooth?: string;
+  /** Teeth picked on the chart before landing here (see ToothChartTab's Next button) - one record is created per tooth, sharing everything else in the form. */
+  initialTeeth?: string[];
   onSaved: () => void;
   mutate: ReturnType<typeof useCreateTreatmentRecord>;
 }) {
   const navigate = useNavigate();
   const uploadPhoto = useUploadFile();
+  const hasInitialTeeth = !!initialTeeth?.length;
   const [form, setForm] = useState<Partial<CreateTreatmentRecordInput>>({
     date: todayDateInputValue(),
     status: "completed",
-    toothNumber: initialTooth,
   });
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -471,26 +512,40 @@ function TreatmentForm({
       setError("Select the tooth condition.");
       return;
     }
+    if (form.condition === "other" && !form.conditionOther?.trim()) {
+      setError("Describe the condition.");
+      return;
+    }
     if (!photoFile) {
       setError("Add a before-treatment photo.");
       return;
     }
+    setError(null);
+    setSaving(true);
     try {
       const uploaded = await uploadPhoto.mutateAsync({
         patientId,
         type: "before_treatment",
         file: await compressImageForUpload(photoFile),
       });
-      await mutate.mutateAsync({
+      const base = {
         ...form,
         patientId,
         staffId,
         procedure: form.procedure,
         condition: form.condition,
+        conditionOther: form.condition === "other" ? form.conditionOther?.trim() : undefined,
         date: form.date!,
         status: form.status ?? "completed",
         beforeTreatmentFileId: uploaded.item.id,
-      });
+      };
+      // One treatment record per selected tooth, sequentially - each is an
+      // independent POST, so a failure partway through leaves the earlier
+      // teeth saved rather than losing the whole batch.
+      const teeth = hasInitialTeeth ? initialTeeth! : [form.toothNumber];
+      for (const tooth of teeth) {
+        await mutate.mutateAsync({ ...base, toothNumber: tooth as never });
+      }
       // A "planned" treatment needs a booked visit to actually happen, so go
       // straight to scheduling one instead of just closing the form.
       if (form.status === "planned") {
@@ -500,6 +555,8 @@ function TreatmentForm({
       onSaved();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save.");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -527,11 +584,17 @@ function TreatmentForm({
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label htmlFor="tooth">Tooth{initialTooth ? "" : " (optional)"}</Label>
-            {initialTooth ? (
-              <p id="tooth" className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                Tooth {initialTooth} · selected from the chart
-              </p>
+            <Label htmlFor="tooth">Tooth{hasInitialTeeth ? "" : " (optional)"}</Label>
+            {hasInitialTeeth ? (
+              <div id="tooth" className="flex flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                <span className="text-sm text-slate-600">{initialTeeth!.length > 1 ? "Teeth" : "Tooth"}:</span>
+                {initialTeeth!.map((tooth) => (
+                  <Badge key={tooth} tone="brand">
+                    {tooth}
+                  </Badge>
+                ))}
+                <span className="text-xs text-slate-400">· selected from the chart</span>
+              </div>
             ) : (
               <Input
                 id="tooth"
@@ -559,6 +622,17 @@ function TreatmentForm({
             </Select>
           </div>
         </div>
+        {form.condition === "other" && (
+          <div>
+            <Label htmlFor="conditionOther">Describe condition</Label>
+            <Input
+              id="conditionOther"
+              value={form.conditionOther ?? ""}
+              onChange={(e) => setForm((f) => ({ ...f, conditionOther: e.target.value }))}
+              placeholder="e.g. Chipped enamel, cosmetic wear"
+            />
+          </div>
+        )}
         <div>
           <Label htmlFor="status">Status</Label>
           <Select id="status" value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as never }))}>
@@ -590,8 +664,16 @@ function TreatmentForm({
           {photoFile && <p className="mt-1 text-xs text-slate-500">{photoFile.name}</p>}
         </div>
         <FieldError>{error}</FieldError>
-        <Button type="submit" disabled={mutate.isPending || uploadPhoto.isPending}>
-          {uploadPhoto.isPending ? "Uploading photo…" : mutate.isPending ? "Saving…" : "Save treatment note"}
+        <Button type="submit" disabled={saving}>
+          {uploadPhoto.isPending
+            ? "Uploading photo…"
+            : saving
+              ? initialTeeth && initialTeeth.length > 1
+                ? "Saving treatment notes…"
+                : "Saving…"
+              : initialTeeth && initialTeeth.length > 1
+                ? `Save treatment note for ${initialTeeth.length} teeth`
+                : "Save treatment note"}
         </Button>
       </form>
     </Card>

@@ -76,5 +76,6 @@ export const TOOTH_CONDITIONS = [
   "extraction_planned",
   "impacted",
   "fractured",
+  "other",
 ] as const;
 export type ToothCondition = (typeof TOOTH_CONDITIONS)[number];
