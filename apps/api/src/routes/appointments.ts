@@ -10,7 +10,7 @@ import { getDb, type Db } from "../db/client.js";
 import { appointments, patients, reminders, staff } from "../db/schema.js";
 import { conflict, notFound } from "../lib/responses.js";
 import { rangesOverlap } from "../lib/scheduling.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireRole } from "../middleware/auth.js";
 import { validate } from "../lib/validate.js";
 import { formatIstDateTime } from "../lib/whatsapp.js";
 import { isWhatsAppCloudApiConfigured, sendWhatsAppTemplateMessage } from "../lib/whatsappCloudApi.js";
@@ -251,3 +251,20 @@ appointmentRoutes.patch(
     return c.json({ item });
   },
 );
+
+// Deleting is admin-only - unlike creating/editing an appointment (or just
+// marking it cancelled/no-show), which stays open to every signed-in role.
+// See the RBAC table in docs/architecture.md.
+appointmentRoutes.delete("/:id", requireRole("admin"), validate("param", idParamSchema), async (c) => {
+  const { id } = c.req.valid("param");
+  const db = getDb(c.env);
+  const [existing] = await db
+    .select({ id: appointments.id })
+    .from(appointments)
+    .where(and(eq(appointments.id, id), isNull(appointments.deletedAt)))
+    .limit(1);
+  if (!existing) throw notFound("Appointment");
+
+  await db.update(appointments).set({ deletedAt: new Date().toISOString() }).where(eq(appointments.id, id));
+  return c.json({ ok: true });
+});

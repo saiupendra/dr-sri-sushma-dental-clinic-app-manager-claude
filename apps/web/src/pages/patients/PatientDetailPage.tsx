@@ -4,6 +4,7 @@ import { TOOTH_CONDITIONS, type CreateTreatmentRecordInput, type TreatmentRecord
 import { usePatient, usePatientToothChart } from "../../hooks/usePatients.js";
 import {
   useCreateTreatmentRecord,
+  useDeleteTreatmentRecord,
   useTreatmentsList,
   useUpdateTreatmentRecord,
   useUpdateTreatmentStatus,
@@ -259,6 +260,7 @@ function TreatmentsTab({
               treatment={t}
               canToggleStatus={canToggleStatus}
               canEdit={canEdit}
+              canDelete={user?.role === "admin"}
             />
           ))}
         </ul>
@@ -272,15 +274,27 @@ function TreatmentRow({
   treatment,
   canToggleStatus,
   canEdit,
+  canDelete,
 }: {
   patientId: string;
   treatment: TreatmentRecord;
   canToggleStatus: boolean;
   canEdit: boolean;
+  canDelete: boolean;
 }) {
   const updateStatus = useUpdateTreatmentStatus(patientId, treatment.id);
+  const deleteTreatment = useDeleteTreatmentRecord(patientId, treatment.id);
   const [editing, setEditing] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const otherStatus = treatment.status === "planned" ? "completed" : "planned";
+
+  function onDelete() {
+    setDeleteError(null);
+    if (!confirm(`Delete this treatment note (${treatment.procedure})? This can't be undone.`)) return;
+    deleteTreatment.mutate(undefined, {
+      onError: (err) => setDeleteError(err instanceof ApiError ? err.message : "Could not delete the treatment note."),
+    });
+  }
 
   return (
     <li className="py-3 text-sm">
@@ -305,8 +319,14 @@ function TreatmentRow({
               {editing ? "Close" : "Edit"}
             </Button>
           )}
+          {canDelete && (
+            <Button size="sm" variant="danger" onClick={onDelete} disabled={deleteTreatment.isPending}>
+              Delete
+            </Button>
+          )}
         </div>
       </div>
+      <FieldError>{deleteError}</FieldError>
       <p className="text-xs text-slate-400">{formatDate(treatment.date)}</p>
       {treatment.condition && (
         <p className="mt-1 text-slate-600">

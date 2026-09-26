@@ -30,3 +30,13 @@ export function useResetStaffPassword(id: string) {
     mutationFn: (password: string) => api.post(`/api/staff/${id}/reset-password`, { password }),
   });
 }
+
+// Admin-only (see routes/staff.ts) - a staff-account change, not an
+// offline-critical write, so this fails loudly offline like its siblings above.
+export function useDeleteStaff(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.delete(`/api/staff/${id}`),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["staff", "list"] }),
+  });
+}

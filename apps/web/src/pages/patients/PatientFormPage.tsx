@@ -1,9 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useNavigate, useParams } from "react-router-dom";
 import { createPatientSchema, type CreatePatientInput } from "@clinic/shared";
-import { usePatient, useCreatePatient, useUpdatePatient } from "../../hooks/usePatients.js";
+import { usePatient, useCreatePatient, useUpdatePatient, useDeletePatient } from "../../hooks/usePatients.js";
+import { useAuth } from "../../auth/useAuth.js";
 import { ApiError } from "../../api/client.js";
 import { Button, Card, FieldError, Input, Label, PageHeader, Select, Textarea } from "../../components/ui.js";
 
@@ -11,9 +12,23 @@ export function PatientFormPage() {
   const { id } = useParams<{ id: string }>();
   const isEdit = !!id;
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { data: existing } = usePatient(id);
   const createPatient = useCreatePatient();
   const updatePatient = useUpdatePatient(id ?? "");
+  const deletePatient = useDeletePatient(id ?? "");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  async function onDelete() {
+    setDeleteError(null);
+    if (!existing || !confirm(`Delete ${existing.name}'s record? This can't be undone.`)) return;
+    try {
+      await deletePatient.mutateAsync();
+      navigate("/patients");
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : "Could not delete the patient.");
+    }
+  }
 
   const {
     register,
@@ -158,6 +173,19 @@ export function PatientFormPage() {
           </div>
         </form>
       </Card>
+      {isEdit && user?.role === "admin" && (
+        <Card className="mt-4 border-red-200">
+          <h2 className="text-sm font-semibold text-red-800">Danger zone</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Permanently removes this patient from lists and search. Their appointments, treatment notes and
+            invoices stay on record but the patient can no longer be found or billed.
+          </p>
+          <Button type="button" variant="danger" className="mt-3" onClick={() => void onDelete()} disabled={deletePatient.isPending}>
+            {deletePatient.isPending ? "Deleting…" : "Delete patient"}
+          </Button>
+          <FieldError>{deleteError}</FieldError>
+        </Card>
+      )}
     </div>
   );
 }

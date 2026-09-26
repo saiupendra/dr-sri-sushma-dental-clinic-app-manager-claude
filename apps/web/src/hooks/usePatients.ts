@@ -88,3 +88,13 @@ export function useUpdatePatient(id: string) {
     },
   });
 }
+
+// Admin-only (see routes/patients.ts) - not exposed to doctor/front_desk in the UI.
+export function useDeletePatient(id: string) {
+  return useOfflineMutation<void, { ok: true }>({
+    method: "DELETE",
+    path: () => `/api/patients/${id}`,
+    entityLabel: () => "Delete patient",
+    invalidateKeys: () => [["patients", "detail", id], ["patients", "list"]],
+  });
+}

@@ -1,18 +1,24 @@
+import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { useAppointment } from "../../hooks/useAppointments.js";
+import { useAppointment, useDeleteAppointment } from "../../hooks/useAppointments.js";
 import { useMarkReminderSent, useRemindersList, useSendReminder } from "../../hooks/useReminders.js";
 import { useTreatmentsList } from "../../hooks/useTreatments.js";
+import { useAuth } from "../../auth/useAuth.js";
 import { formatDate, formatDateTime, toLocalDateString } from "../../lib/dates.js";
-import { Badge, Button, Card, EmptyState, PageHeader, Spinner } from "../../components/ui.js";
+import { ApiError } from "../../api/client.js";
+import { Badge, Button, Card, EmptyState, FieldError, PageHeader, Spinner } from "../../components/ui.js";
 
 export function AppointmentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { data: appointment, isLoading } = useAppointment(id);
   const { data: reminders } = useRemindersList(id);
   const { data: treatments } = useTreatmentsList(appointment?.patientId);
   const sendReminder = useSendReminder(id ?? "");
   const markSent = useMarkReminderSent(id ?? "");
+  const deleteAppointment = useDeleteAppointment(id ?? "");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   if (isLoading) return <p className="text-sm text-slate-400">Loading…</p>;
   if (!appointment) return <p className="text-sm text-slate-500">Appointment not found.</p>;
@@ -22,16 +28,35 @@ export function AppointmentDetailPage() {
     window.open(result.whatsappUrl, "_blank", "noopener");
   }
 
+  async function onDelete() {
+    setDeleteError(null);
+    if (!confirm("Delete this appointment? This can't be undone.")) return;
+    try {
+      await deleteAppointment.mutateAsync();
+      navigate("/appointments");
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : "Could not delete the appointment.");
+    }
+  }
+
   return (
     <div className="mx-auto max-w-lg space-y-4">
       <PageHeader
         title="Appointment"
         action={
-          <Button variant="secondary" onClick={() => navigate(`/appointments/${id}/edit`)}>
-            Edit
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => navigate(`/appointments/${id}/edit`)}>
+              Edit
+            </Button>
+            {user?.role === "admin" && (
+              <Button variant="danger" onClick={() => void onDelete()} disabled={deleteAppointment.isPending}>
+                {deleteAppointment.isPending ? "Deleting…" : "Delete"}
+              </Button>
+            )}
+          </div>
         }
       />
+      <FieldError>{deleteError}</FieldError>
       <Card>
         <dl className="grid grid-cols-3 gap-y-3 text-sm">
           <dt className="text-slate-500">Patient</dt>

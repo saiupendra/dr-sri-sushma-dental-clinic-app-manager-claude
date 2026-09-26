@@ -76,6 +76,16 @@ export function useCreateAppointment() {
   });
 }
 
+// Admin-only (see routes/appointments.ts) - not exposed to doctor/front_desk in the UI.
+export function useDeleteAppointment(id: string) {
+  return useOfflineMutation<void, { ok: true }>({
+    method: "DELETE",
+    path: () => `/api/appointments/${id}`,
+    entityLabel: () => "Delete appointment",
+    invalidateKeys: () => [["appointments", "list"], ["appointments", "detail", id]],
+  });
+}
+
 export function useUpdateAppointment(id: string) {
   return useOfflineMutation<UpdateAppointmentInput, { item: AppointmentWithPatient }>({
     method: "PATCH",

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test, expect } from "@playwright/test";
-import { loginAsDoctor, uniquePatient } from "./helpers.js";
+import { loginAsAdmin, loginAsDoctor, signOut, uniquePatient } from "./helpers.js";
 
 const BEFORE_TREATMENT_PHOTO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "fixtures/before-treatment.png");
 
@@ -149,4 +149,48 @@ test("defaults a treatment note to planned, requires notes and a prescription, a
   // /appointments/new the way an unlinked planned note would.
   await expect(page).toHaveURL(patientUrl);
   await expect(page.getByText("Crown fitting")).toBeVisible();
+});
+
+// Deleting a saved treatment note is admin-only - a doctor (who authors
+// them) can no longer remove one once saved. See the RBAC table in
+// docs/architecture.md.
+test("only admin can delete a saved treatment note", async ({ page }) => {
+  await loginAsDoctor(page);
+  const patient = uniquePatient("Delete RBAC Patient");
+
+  await page.goto("/patients/new");
+  await page.fill("#name", patient.name);
+  await page.fill("#phone", patient.phone);
+  await page.fill("#address", "123 Test Street");
+  await page.fill("#medicalHistoryNotes", "None known.");
+  await page.fill("#consultationFee", "500");
+  await page.click('button[type="submit"]');
+  await expect(page).toHaveURL(/\/patients\/[a-f0-9-]+$/);
+  const patientUrl = page.url();
+
+  await page.getByRole("button", { name: "Treatment notes" }).click();
+  await page.getByRole("button", { name: "+ Add treatment note" }).click();
+  await page.fill("#procedure", "Extraction");
+  await page.selectOption("#condition", "extraction_planned");
+  await page.fill("#notes", "Wisdom tooth extraction discussed.");
+  await page.fill("#prescription", "None required yet.");
+  // Stay on this page rather than bouncing to /appointments/new, which the
+  // default "planned" status (with no linked appointment) would trigger.
+  await page.selectOption("#status", "completed");
+  await page.setInputFiles("#beforePhoto", BEFORE_TREATMENT_PHOTO);
+  await page.getByRole("button", { name: "Save treatment note" }).click();
+  await expect(page.getByText("Extraction", { exact: true })).toBeVisible();
+
+  // The doctor who just authored it has no Delete button at all.
+  await expect(page.getByRole("button", { name: "Delete" })).toHaveCount(0);
+
+  await signOut(page);
+  await loginAsAdmin(page);
+  await page.goto(patientUrl);
+  await page.getByRole("button", { name: "Treatment notes" }).click();
+  await expect(page.getByText("Extraction", { exact: true })).toBeVisible();
+
+  page.once("dialog", (dialog) => void dialog.accept());
+  await page.getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByText("Extraction", { exact: true })).not.toBeVisible();
 });

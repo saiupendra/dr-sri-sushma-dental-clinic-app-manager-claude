@@ -74,6 +74,18 @@ export function invoicePublicPdfUrl(id: string, shareToken: string): string {
   return `${import.meta.env.VITE_API_URL as string}/api/public/invoices/${id}/${shareToken}/pdf`;
 }
 
+// Admin-only (see routes/invoices.ts) - not exposed to doctor/front_desk in the UI.
+export function useDeleteInvoice(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.delete(`/api/invoices/${id}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["invoices", "detail", id] });
+      void queryClient.invalidateQueries({ queryKey: ["invoices", "list"] });
+    },
+  });
+}
+
 export function useDeletePayment(invoiceId: string) {
   const queryClient = useQueryClient();
   return useMutation({

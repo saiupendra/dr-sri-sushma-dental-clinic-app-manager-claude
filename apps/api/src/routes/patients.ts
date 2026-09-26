@@ -10,7 +10,7 @@ import { getDb } from "../db/client.js";
 import { patients } from "../db/schema.js";
 import { notFound } from "../lib/responses.js";
 import { getToothChart } from "../lib/toothChart.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireRole } from "../middleware/auth.js";
 import { validate } from "../lib/validate.js";
 import type { AppContext } from "../types.js";
 
@@ -150,7 +150,9 @@ patientRoutes.get("/:id/tooth-chart", validate("param", idParamSchema), async (c
   return c.json({ items: chart });
 });
 
-patientRoutes.delete("/:id", validate("param", idParamSchema), async (c) => {
+// Deleting is admin-only - unlike patient create/edit, which stays open to
+// every signed-in role. See the RBAC table in docs/architecture.md.
+patientRoutes.delete("/:id", requireRole("admin"), validate("param", idParamSchema), async (c) => {
   const { id } = c.req.valid("param");
   const db = getDb(c.env);
   const [existing] = await db

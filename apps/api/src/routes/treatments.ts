@@ -181,7 +181,10 @@ treatmentRoutes.patch(
   },
 );
 
-treatmentRoutes.delete("/:id", requireRole("doctor"), validate("param", idParamSchema), async (c) => {
+// Deleting a saved clinical record is admin-only - unlike creating one
+// (doctor-only) or toggling its status (admin+doctor). Once something is
+// saved, only admin can remove it; see the RBAC table in docs/architecture.md.
+treatmentRoutes.delete("/:id", requireRole("admin"), validate("param", idParamSchema), async (c) => {
   const { id } = c.req.valid("param");
   const db = getDb(c.env);
   const [existing] = await db

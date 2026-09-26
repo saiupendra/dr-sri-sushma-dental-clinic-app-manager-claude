@@ -1,14 +1,16 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { buildWhatsAppUrl, CLINIC_NAME, PAYMENT_METHODS, type PaymentMethod } from "@clinic/shared";
 import {
   invoicePdfUrl,
   invoicePublicPdfUrl,
+  useDeleteInvoice,
   useDeletePayment,
   useInvoice,
   useRecordPayment,
 } from "../../hooks/useInvoices.js";
 import { usePatient } from "../../hooks/usePatients.js";
+import { useAuth } from "../../auth/useAuth.js";
 import { formatDateTime } from "../../lib/dates.js";
 import { ApiError } from "../../api/client.js";
 import { Badge, Button, Card, FieldError, Input, Label, PageHeader, Select } from "../../components/ui.js";
@@ -19,14 +21,19 @@ const PAYMENT_LABELS: Record<string, string> = {
 
 export function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const { data: invoice, isLoading } = useInvoice(id);
   const { data: patient } = usePatient(invoice?.patientId);
   const recordPayment = useRecordPayment(id ?? "");
   const deletePayment = useDeletePayment(id ?? "");
+  const deleteInvoice = useDeleteInvoice(id ?? "");
 
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<PaymentMethod>("cash");
   const [error, setError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   if (isLoading) return <p className="text-sm text-slate-400">Loading…</p>;
   if (!invoice) return <p className="text-sm text-slate-500">Invoice not found.</p>;
@@ -58,6 +65,17 @@ export function InvoiceDetailPage() {
     }
   }
 
+  async function onDeleteInvoice() {
+    setDeleteError(null);
+    if (!confirm("Delete this invoice? This can't be undone.")) return;
+    try {
+      await deleteInvoice.mutateAsync();
+      navigate("/billing");
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : "Could not delete the invoice.");
+    }
+  }
+
   return (
     <div className="mx-auto max-w-4xl space-y-4">
       <PageHeader
@@ -85,8 +103,14 @@ export function InvoiceDetailPage() {
               <Button size="sm" variant="secondary" onClick={onSendViaWhatsApp} disabled={!invoice.shareToken}>
                 Send via WhatsApp
               </Button>
+              {isAdmin && (
+                <Button size="sm" variant="danger" onClick={() => void onDeleteInvoice()} disabled={deleteInvoice.isPending}>
+                  {deleteInvoice.isPending ? "Deleting…" : "Delete invoice"}
+                </Button>
+              )}
             </div>
           </div>
+          <FieldError>{deleteError}</FieldError>
         </Card>
       )}
 
@@ -152,9 +176,11 @@ export function InvoiceDetailPage() {
                 <span className="text-slate-400">via {PAYMENT_LABELS[payment.method] ?? payment.method}</span>
                 <p className="text-xs text-slate-400">{formatDateTime(payment.paidAt)}</p>
               </div>
-              <Button size="sm" variant="ghost" onClick={() => deletePayment.mutate(payment.id)}>
-                Remove
-              </Button>
+              {isAdmin && (
+                <Button size="sm" variant="ghost" onClick={() => deletePayment.mutate(payment.id)}>
+                  Remove
+                </Button>
+              )}
             </li>
           ))}
         </ul>

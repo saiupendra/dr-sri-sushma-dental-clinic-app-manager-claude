@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { createStaffSchema, idParamSchema, resetPasswordSchema, updateStaffSchema } from "@clinic/shared";
 import { getDb } from "../db/client.js";
 import { staff } from "../db/schema.js";
@@ -24,7 +24,7 @@ staffRoutes.use("*", requireAuth);
 staffRoutes.get("/", async (c) => {
   const db = getDb(c.env);
   const user = c.get("currentUser");
-  const rows = await db.select().from(staff).orderBy(desc(staff.createdAt));
+  const rows = await db.select().from(staff).where(isNull(staff.deletedAt)).orderBy(desc(staff.createdAt));
   const visible = user.role === "admin" ? rows : rows.filter((row) => row.role !== "admin");
   return c.json({ items: visible.map(toStaffPublic) });
 });
@@ -71,7 +71,7 @@ staffRoutes.patch("/:id", requireRole("admin", "doctor"), validate("param", idPa
   const user = c.get("currentUser");
   const db = getDb(c.env);
 
-  const [existing] = await db.select().from(staff).where(eq(staff.id, id)).limit(1);
+  const [existing] = await db.select().from(staff).where(and(eq(staff.id, id), isNull(staff.deletedAt))).limit(1);
   if (!existing) throw notFound("Staff member");
 
   if (user.role === "doctor" && (existing.role !== "front_desk" || (input.role && input.role !== "front_desk"))) {
@@ -98,7 +98,7 @@ staffRoutes.post("/:id/reset-password", requireRole("admin", "doctor"), validate
   const user = c.get("currentUser");
   const db = getDb(c.env);
 
-  const [existing] = await db.select().from(staff).where(eq(staff.id, id)).limit(1);
+  const [existing] = await db.select().from(staff).where(and(eq(staff.id, id), isNull(staff.deletedAt))).limit(1);
   if (!existing) throw notFound("Staff member");
 
   if (user.role === "doctor" && existing.role !== "front_desk") {
@@ -113,5 +113,39 @@ staffRoutes.post("/:id/reset-password", requireRole("admin", "doctor"), validate
 
   // Force re-login everywhere with the new password.
   await destroyAllSessionsForStaff(db, id);
+  return c.json({ ok: true });
+});
+
+// Deleting is admin-only, unlike everything else above - see the ROLES
+// comment in constants.ts and the RBAC table in docs/architecture.md.
+// Soft-delete only (see the schema.ts column comment on staff.deletedAt):
+// appointments/treatment_records/invoices/payments/files all carry a
+// required reference to staff.id, so the row itself must survive.
+staffRoutes.delete("/:id", requireRole("admin"), validate("param", idParamSchema), async (c) => {
+  const { id } = c.req.valid("param");
+  const user = c.get("currentUser");
+  const db = getDb(c.env);
+
+  const [existing] = await db.select().from(staff).where(and(eq(staff.id, id), isNull(staff.deletedAt))).limit(1);
+  if (!existing) throw notFound("Staff member");
+
+  if (id === user.id) {
+    throw badRequest("You cannot delete your own account while signed in as it. Ask another admin.");
+  }
+
+  if (existing.role === "doctor" && existing.isActive) {
+    const otherDoctorRows = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(staff)
+      .where(and(eq(staff.role, "doctor"), eq(staff.isActive, true), isNull(staff.deletedAt), ne(staff.id, id)));
+    if ((otherDoctorRows[0]?.count ?? 0) === 0) {
+      throw badRequest("Cannot delete the last active doctor account - the clinic would lose all clinical access.");
+    }
+  }
+
+  const now = new Date().toISOString();
+  await db.update(staff).set({ deletedAt: now, isActive: false, updatedAt: now }).where(eq(staff.id, id));
+  await destroyAllSessionsForStaff(db, id);
+
   return c.json({ ok: true });
 });

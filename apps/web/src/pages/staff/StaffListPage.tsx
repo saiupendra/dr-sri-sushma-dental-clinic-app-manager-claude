@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createStaffSchema, ROLE_LABELS, type CreateStaffInput, type Role } from "@clinic/shared";
 import { useAuth } from "../../auth/useAuth.js";
-import { useCreateStaff, useResetStaffPassword, useStaffList, useUpdateStaff } from "../../hooks/useStaff.js";
+import { useCreateStaff, useDeleteStaff, useResetStaffPassword, useStaffList, useUpdateStaff } from "../../hooks/useStaff.js";
 import { ApiError } from "../../api/client.js";
 import { Badge, Button, Card, FieldError, Input, Label, PageHeader, Select } from "../../components/ui.js";
 
@@ -24,7 +24,12 @@ export function StaffListPage() {
         {isLoading && <p className="text-sm text-slate-400">Loading…</p>}
         <ul className="divide-y divide-slate-100">
           {staffList?.map((member) => (
-            <StaffRow key={member.id} staff={member} canManage={isAdmin || member.role === "front_desk"} />
+            <StaffRow
+              key={member.id}
+              staff={member}
+              canManage={isAdmin || member.role === "front_desk"}
+              canDelete={isAdmin && member.id !== user?.id}
+            />
           ))}
         </ul>
       </Card>
@@ -100,14 +105,26 @@ function NewStaffForm({ isAdmin, onSaved }: { isAdmin: boolean; onSaved: () => v
 function StaffRow({
   staff,
   canManage,
+  canDelete,
 }: {
   staff: { id: string; name: string; username: string; role: Role; isActive: boolean };
   canManage: boolean;
+  canDelete: boolean;
 }) {
   const [resetting, setResetting] = useState(false);
   const [newPassword, setNewPassword] = useState("");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const updateStaff = useUpdateStaff(staff.id);
   const resetPassword = useResetStaffPassword(staff.id);
+  const deleteStaff = useDeleteStaff(staff.id);
+
+  function onDelete() {
+    setDeleteError(null);
+    if (!confirm(`Delete ${staff.name}'s account? This can't be undone.`)) return;
+    deleteStaff.mutate(undefined, {
+      onError: (err) => setDeleteError(err instanceof ApiError ? err.message : "Could not delete the account."),
+    });
+  }
 
   return (
     <li className="py-3">
@@ -121,21 +138,31 @@ function StaffRow({
             <Badge tone={staff.isActive ? "green" : "red"}>{staff.isActive ? "Active" : "Deactivated"}</Badge>
           </div>
         </div>
-        {canManage && (
+        {(canManage || canDelete) && (
           <div className="flex gap-2">
-            <Button size="sm" variant="secondary" onClick={() => setResetting((v) => !v)}>
-              Reset password
-            </Button>
-            <Button
-              size="sm"
-              variant={staff.isActive ? "danger" : "secondary"}
-              onClick={() => updateStaff.mutate({ isActive: !staff.isActive })}
-            >
-              {staff.isActive ? "Deactivate" : "Reactivate"}
-            </Button>
+            {canManage && (
+              <>
+                <Button size="sm" variant="secondary" onClick={() => setResetting((v) => !v)}>
+                  Reset password
+                </Button>
+                <Button
+                  size="sm"
+                  variant={staff.isActive ? "danger" : "secondary"}
+                  onClick={() => updateStaff.mutate({ isActive: !staff.isActive })}
+                >
+                  {staff.isActive ? "Deactivate" : "Reactivate"}
+                </Button>
+              </>
+            )}
+            {canDelete && (
+              <Button size="sm" variant="danger" onClick={onDelete} disabled={deleteStaff.isPending}>
+                Delete
+              </Button>
+            )}
           </div>
         )}
       </div>
+      <FieldError>{deleteError}</FieldError>
       {canManage && resetting && (
         <div className="mt-3 flex items-end gap-2">
           <div className="flex-1">

@@ -21,6 +21,11 @@ export const staff = sqliteTable(
     passwordHash: text("password_hash").notNull(),
     passwordSalt: text("password_salt").notNull(),
     isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+    // Soft-delete only - appointments, treatment_records, invoices, payments
+    // and files all carry a required staff.id reference, so a real DELETE
+    // would either violate that foreign key or (if unenforced) silently
+    // orphan historical records. See routes/staff.ts.
+    deletedAt: text("deleted_at"),
     ...timestamps,
   },
   (t) => ({

@@ -42,8 +42,10 @@ scoped from):
    sends automatically. See "Reminders" below for why.
 6. **Files** — X-rays/documents uploaded straight from the browser into R2
    through the Worker (`files.ts`), no presigned URLs or S3 credentials.
-7. **Staff** — doctor-only account management; front-desk accounts can be
-   deactivated (ends their sessions immediately) and password-reset.
+7. **Staff** — account management (admin unrestricted, doctor limited to
+   front-desk accounts); an account can be deactivated (ends its sessions
+   immediately), password-reset, or deleted (admin-only, soft-delete). See
+   "RBAC" below for the full breakdown.
 
 Plus the cross-cutting **auth/RBAC** layer (session cookies, `requireAuth` /
 `requireRole` middleware) and **reliability plumbing** (`/health`, the global
@@ -60,19 +62,33 @@ have a soft-delete `deleted_at` instead of a real `DELETE`.
 
 ## RBAC
 
-Two roles: `doctor` (full access) and `front_desk`. The split, enforced with
-`requireRole("doctor")` at specific routes:
+Three roles: `admin` (system/operations, never a treating clinician),
+`doctor` (full clinical access) and `front_desk` (scoped). Enforced with
+`requireRole(...)` at specific routes:
 
-| Module | front_desk | doctor |
-|---|---|---|
-| Patients, appointments, invoices/payments, files, reminders | read/write | read/write |
-| Treatment records (clinical notes) | read only | read/write |
-| Staff accounts | no access | read/write |
+| Module | front_desk | doctor | admin |
+|---|---|---|---|
+| Patients, appointments, invoices/payments, files, reminders — create/edit | read/write | read/write | read/write |
+| Treatment records (clinical notes) — create | no access | write | no access |
+| Treatment records — edit content, or flip status | no access | status only | full edit |
+| Staff accounts — create/deactivate/reset password | no access | front-desk accounts only | any account |
+| **Delete** — patients, appointments, treatment records, invoices/payments, files, staff accounts | no access | no access | **only role that can delete anything** |
 
-Clinical write access is doctor-only because Dr.Sri Sushma leads all
+Clinical *write* access is doctor-only because Dr.Sri Sushma leads all
 treatment at this clinic (per the intake doc) — front-desk should never be
 the author of a clinical note. If a second treating dentist joins later,
 this is the one place that needs revisiting.
+
+Deleting anything already saved — regardless of module — is admin-only.
+Nothing else about a role's read/write access changes once something is
+deleted vs. edited; this is purely about who can make a saved record go
+away. Patients, appointments, treatment records and invoices are
+soft-deleted (`deleted_at`); staff accounts are too, for the same reason
+appointments/treatments/invoices/files carry a required reference to
+`staff.id` that a real `DELETE` would either violate or silently orphan.
+Two safety guards on staff deletion specifically (`routes/staff.ts`): you
+can't delete your own account, and you can't delete the last remaining
+active doctor account (the clinic would lose all clinical access).
 
 ## Auth
 

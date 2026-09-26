@@ -14,7 +14,7 @@ import { deriveInvoiceStatus } from "../lib/billing.js";
 import { randomToken } from "../lib/crypto.js";
 import { generateInvoicePdf } from "../lib/invoicePdf.js";
 import { badRequest, conflict, notFound } from "../lib/responses.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireRole } from "../middleware/auth.js";
 import { validate } from "../lib/validate.js";
 import type { AppContext } from "../types.js";
 
@@ -386,7 +386,9 @@ invoiceRoutes.post(
   },
 );
 
-invoiceRoutes.delete("/:id/payments/:paymentId", async (c) => {
+// Deleting is admin-only - unlike recording a payment, which stays open to
+// every signed-in role. See the RBAC table in docs/architecture.md.
+invoiceRoutes.delete("/:id/payments/:paymentId", requireRole("admin"), async (c) => {
   const id = c.req.param("id");
   const paymentId = c.req.param("paymentId");
   const db = getDb(c.env);
@@ -414,7 +416,7 @@ invoiceRoutes.delete("/:id/payments/:paymentId", async (c) => {
   return c.json({ item: detail });
 });
 
-invoiceRoutes.delete("/:id", validate("param", idParamSchema), async (c) => {
+invoiceRoutes.delete("/:id", requireRole("admin"), validate("param", idParamSchema), async (c) => {
   const { id } = c.req.valid("param");
   const db = getDb(c.env);
   const [existing] = await db

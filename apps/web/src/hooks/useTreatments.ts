@@ -68,6 +68,21 @@ export function useUpdateTreatmentRecord(patientId: string, id: string) {
   });
 }
 
+// Admin-only (see requireRole("admin") on DELETE /api/treatments/:id) - not
+// exposed to doctor/front_desk in the UI. Once a clinical note is saved,
+// only admin can remove it.
+export function useDeleteTreatmentRecord(patientId: string, id: string) {
+  return useOfflineMutation<void, { ok: true }>({
+    method: "DELETE",
+    path: () => `/api/treatments/${id}`,
+    entityLabel: () => "Delete treatment note",
+    invalidateKeys: () => [
+      ["treatments", "list", patientId],
+      ["patients", "tooth-chart", patientId],
+    ],
+  });
+}
+
 // The one edit a doctor can still make to a saved record - see
 // requireRole("admin", "doctor") on PATCH /api/treatments/:id/status.
 export function useUpdateTreatmentStatus(patientId: string, id: string) {
