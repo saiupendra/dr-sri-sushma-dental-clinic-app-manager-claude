@@ -114,9 +114,9 @@ export function AppointmentDetailPage() {
                 <p className="text-slate-700">{reminder.message}</p>
                 <p className="text-xs text-slate-400">{formatDateTime(reminder.createdAt)}</p>
               </div>
-              {reminder.status === "sent" ? (
-                <Badge tone="green">Sent</Badge>
-              ) : (
+              {reminder.status === "sent" && <Badge tone="green">Sent</Badge>}
+              {reminder.status === "failed" && <Badge tone="red">Failed</Badge>}
+              {reminder.status === "pending" && (
                 <Button size="sm" variant="secondary" onClick={() => markSent.mutate(reminder.id)}>
                   Mark sent
                 </Button>

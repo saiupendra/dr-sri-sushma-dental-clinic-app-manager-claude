@@ -1,0 +1,162 @@
+import { PDFDocument, rgb, StandardFonts, type PDFFont, type PDFPage } from "pdf-lib";
+import { CLINIC_NAME } from "@clinic/shared";
+import { CLINIC_LOGO_PNG_BASE64 } from "../assets/clinicLogo.js";
+
+const PAGE_WIDTH = 595.28; // A4, points
+const PAGE_HEIGHT = 841.89;
+const MARGIN = 48;
+const BRAND_BLUE = rgb(0.29, 0.45, 0.75); // sampled from the real clinic logo
+const DARK = rgb(0.13, 0.15, 0.18);
+const GRAY = rgb(0.45, 0.47, 0.5);
+const LIGHT_LINE = rgb(0.85, 0.86, 0.88);
+const GREEN = rgb(0.1, 0.55, 0.3);
+const AMBER = rgb(0.75, 0.5, 0.05);
+
+export interface InvoicePdfItem {
+  description: string;
+  amount: number;
+}
+
+export interface InvoicePdfInput {
+  invoiceId: string;
+  date: string; // ISO
+  status: string;
+  patientName: string;
+  patientPhone: string;
+  items: InvoicePdfItem[];
+  totalAmount: number;
+  amountPaid: number;
+}
+
+/**
+ * pdf-lib's standard fonts use WinAnsi encoding, which has no glyph for "₹"
+ * (Rupee sign) - drawText would throw. "Rs." is the safe, universally
+ * understood substitute rather than embedding a whole custom Unicode font
+ * just for one symbol.
+ */
+function formatMoney(amount: number): string {
+  return `Rs. ${amount.toFixed(2)}`;
+}
+
+function shortInvoiceNumber(invoiceId: string): string {
+  return `INV-${invoiceId.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
+}
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
+}
+
+function statusLabel(status: string): { text: string; color: ReturnType<typeof rgb> } {
+  if (status === "paid") return { text: "PAID", color: GREEN };
+  if (status === "cancelled") return { text: "CANCELLED", color: GRAY };
+  if (status === "partially_paid") return { text: "PARTIALLY PAID", color: AMBER };
+  return { text: "UNPAID", color: AMBER };
+}
+
+/** Renders the fixed page furniture (logo, clinic name, footer) that every page of a multi-page invoice repeats. */
+function drawPageChrome(page: PDFPage, logo: Awaited<ReturnType<PDFDocument["embedPng"]>>, fontBold: PDFFont, font: PDFFont) {
+  const logoSize = 42;
+  page.drawImage(logo, { x: MARGIN, y: PAGE_HEIGHT - MARGIN - logoSize + 8, width: logoSize, height: logoSize });
+  page.drawText(CLINIC_NAME, {
+    x: MARGIN + logoSize + 12,
+    y: PAGE_HEIGHT - MARGIN - 6,
+    size: 13,
+    font: fontBold,
+    color: DARK,
+  });
+  page.drawText("Unleash Confident Smiles", {
+    x: MARGIN + logoSize + 12,
+    y: PAGE_HEIGHT - MARGIN - 22,
+    size: 9,
+    font,
+    color: GRAY,
+  });
+  page.drawText("This is a system-generated invoice and does not require a signature.", {
+    x: MARGIN,
+    y: MARGIN - 12,
+    size: 7.5,
+    font,
+    color: GRAY,
+  });
+}
+
+export async function generateInvoicePdf(input: InvoicePdfInput): Promise<Uint8Array> {
+  const pdfDoc = await PDFDocument.create();
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const logoBytes = Uint8Array.from(atob(CLINIC_LOGO_PNG_BASE64), (c) => c.charCodeAt(0));
+  const logo = await pdfDoc.embedPng(logoBytes);
+
+  let page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+  drawPageChrome(page, logo, fontBold, font);
+
+  const rightColX = PAGE_WIDTH - MARGIN;
+  const invoiceNo = shortInvoiceNumber(input.invoiceId);
+  const invoiceNoWidth = fontBold.widthOfTextAtSize(invoiceNo, 18);
+  page.drawText(invoiceNo, { x: rightColX - invoiceNoWidth, y: PAGE_HEIGHT - MARGIN - 10, size: 18, font: fontBold, color: BRAND_BLUE });
+  const dateText = formatDate(input.date);
+  const dateWidth = font.widthOfTextAtSize(dateText, 10);
+  page.drawText(dateText, { x: rightColX - dateWidth, y: PAGE_HEIGHT - MARGIN - 26, size: 10, font, color: GRAY });
+  const { text: statusText, color: statusColor } = statusLabel(input.status);
+  const statusWidth = fontBold.widthOfTextAtSize(statusText, 10);
+  page.drawText(statusText, { x: rightColX - statusWidth, y: PAGE_HEIGHT - MARGIN - 42, size: 10, font: fontBold, color: statusColor });
+
+  let y = PAGE_HEIGHT - MARGIN - 70;
+  page.drawLine({ start: { x: MARGIN, y }, end: { x: rightColX, y }, thickness: 1, color: LIGHT_LINE });
+  y -= 24;
+
+  page.drawText("BILLED TO", { x: MARGIN, y, size: 8, font: fontBold, color: GRAY });
+  y -= 16;
+  page.drawText(input.patientName, { x: MARGIN, y, size: 12, font: fontBold, color: DARK });
+  y -= 15;
+  page.drawText(input.patientPhone, { x: MARGIN, y, size: 10, font, color: GRAY });
+  y -= 30;
+
+  const descColX = MARGIN;
+  const amountColX = rightColX;
+  page.drawRectangle({ x: MARGIN, y: y - 6, width: rightColX - MARGIN, height: 22, color: rgb(0.95, 0.96, 0.98) });
+  page.drawText("DESCRIPTION", { x: descColX + 8, y: y, size: 8.5, font: fontBold, color: GRAY });
+  const amountHeaderWidth = fontBold.widthOfTextAtSize("AMOUNT", 8.5);
+  page.drawText("AMOUNT", { x: amountColX - amountHeaderWidth - 8, y: y, size: 8.5, font: fontBold, color: GRAY });
+  y -= 28;
+
+  const bottomLimit = MARGIN + 40;
+  for (const item of input.items) {
+    if (y < bottomLimit) {
+      page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+      drawPageChrome(page, logo, fontBold, font);
+      y = PAGE_HEIGHT - MARGIN - 90;
+    }
+    page.drawText(item.description, { x: descColX + 8, y, size: 10.5, font, color: DARK, maxWidth: 340 });
+    const amountText = formatMoney(item.amount);
+    const amountWidth = font.widthOfTextAtSize(amountText, 10.5);
+    page.drawText(amountText, { x: amountColX - amountWidth - 8, y, size: 10.5, font, color: DARK });
+    y -= 12;
+    page.drawLine({ start: { x: MARGIN, y }, end: { x: rightColX, y }, thickness: 0.5, color: LIGHT_LINE });
+    y -= 18;
+  }
+
+  if (y < bottomLimit + 70) {
+    page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+    drawPageChrome(page, logo, fontBold, font);
+    y = PAGE_HEIGHT - MARGIN - 90;
+  }
+
+  y -= 10;
+  const balanceDue = Math.max(0, input.totalAmount - input.amountPaid);
+  const totalsRow = (label: string, amount: number, opts?: { bold?: boolean; color?: ReturnType<typeof rgb> }) => {
+    const labelFont = opts?.bold ? fontBold : font;
+    const color = opts?.color ?? DARK;
+    const amountText = formatMoney(amount);
+    const amountWidth = labelFont.widthOfTextAtSize(amountText, 11);
+    page.drawText(label, { x: rightColX - 180, y, size: 11, font: labelFont, color });
+    page.drawText(amountText, { x: rightColX - amountWidth, y, size: 11, font: labelFont, color });
+    y -= 18;
+  };
+  totalsRow("Total", input.totalAmount);
+  totalsRow("Paid", input.amountPaid);
+  page.drawLine({ start: { x: rightColX - 180, y: y + 6 }, end: { x: rightColX, y: y + 6 }, thickness: 0.75, color: LIGHT_LINE });
+  totalsRow("Balance due", balanceDue, { bold: true, color: balanceDue > 0 ? AMBER : GREEN });
+
+  return pdfDoc.save();
+}

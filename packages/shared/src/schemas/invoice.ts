@@ -56,6 +56,9 @@ export const invoiceSchema = z
     amountPaid: z.number().nonnegative(),
     notes: z.string().max(2000).nullable(),
     createdBy: idSchema.nullable(),
+    // Unguessable, set at creation - the frontend uses it to build the
+    // public /api/public/invoices/:id/:token/pdf link for "Send via WhatsApp".
+    shareToken: z.string().nullable(),
     items: z.array(invoiceItemSchema),
     payments: z.array(paymentSchema),
   })

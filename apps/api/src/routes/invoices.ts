@@ -9,8 +9,10 @@ import {
 } from "@clinic/shared";
 import type { InvoiceStatus } from "@clinic/shared";
 import { getDb, type Db } from "../db/client.js";
-import { invoiceItems, invoices, payments, treatmentRecords } from "../db/schema.js";
+import { invoiceItems, invoices, patients, payments, treatmentRecords } from "../db/schema.js";
 import { deriveInvoiceStatus } from "../lib/billing.js";
+import { randomToken } from "../lib/crypto.js";
+import { generateInvoicePdf } from "../lib/invoicePdf.js";
 import { badRequest, conflict, notFound } from "../lib/responses.js";
 import { requireAuth } from "../middleware/auth.js";
 import { validate } from "../lib/validate.js";
@@ -43,9 +45,53 @@ async function loadInvoiceDetail(db: Db, id: string) {
     createdBy: invoice.createdBy,
     createdAt: invoice.createdAt,
     updatedAt: invoice.updatedAt,
+    shareToken: invoice.shareToken,
     items,
     payments: invoicePayments,
   };
+}
+
+/**
+ * Shared by the staff-authed download route below and the public,
+ * token-gated one in routes/publicInvoices.ts - both need the exact same
+ * bytes, just with different auth and Content-Disposition around them.
+ * Returns null for a missing/deleted/token-mismatched invoice so each
+ * caller can 404 in its own way rather than this throwing.
+ */
+export async function loadInvoicePdfBytes(db: Db, id: string, requireShareToken?: string): Promise<Uint8Array | null> {
+  const [row] = await db
+    .select({
+      invoiceId: invoices.id,
+      date: invoices.date,
+      status: invoices.status,
+      totalAmount: invoices.totalAmount,
+      amountPaid: invoices.amountPaid,
+      shareToken: invoices.shareToken,
+      patientName: patients.name,
+      patientPhone: patients.phone,
+    })
+    .from(invoices)
+    .innerJoin(patients, eq(invoices.patientId, patients.id))
+    .where(and(eq(invoices.id, id), isNull(invoices.deletedAt)))
+    .limit(1);
+  if (!row) return null;
+  if (requireShareToken !== undefined && row.shareToken !== requireShareToken) return null;
+
+  const items = await db
+    .select({ description: invoiceItems.description, amount: invoiceItems.amount })
+    .from(invoiceItems)
+    .where(eq(invoiceItems.invoiceId, id));
+
+  return generateInvoicePdf({
+    invoiceId: row.invoiceId,
+    date: row.date,
+    status: row.status,
+    patientName: row.patientName,
+    patientPhone: row.patientPhone,
+    items,
+    totalAmount: row.totalAmount,
+    amountPaid: row.amountPaid,
+  });
 }
 
 invoiceRoutes.get("/", validate("query", invoiceListQuerySchema), async (c) => {
@@ -77,6 +123,24 @@ invoiceRoutes.get("/:id", validate("param", idParamSchema), async (c) => {
   const detail = await loadInvoiceDetail(db, id);
   if (!detail) throw notFound("Invoice");
   return c.json({ item: detail });
+});
+
+// Attachment, not inline, on purpose: this is staff downloading their own
+// copy from inside the app, matching every other file-download route (see
+// files.ts). The public, patient-facing link in publicInvoices.ts is the
+// opposite for the same reason it's opposite there.
+invoiceRoutes.get("/:id/pdf", validate("param", idParamSchema), async (c) => {
+  const { id } = c.req.valid("param");
+  const db = getDb(c.env);
+  const pdfBytes = await loadInvoicePdfBytes(db, id);
+  if (!pdfBytes) throw notFound("Invoice");
+  return new Response(pdfBytes, {
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename="invoice-${id.slice(0, 8)}.pdf"`,
+      "Cache-Control": "private, no-store",
+    },
+  });
 });
 
 invoiceRoutes.post("/", validate("json", createInvoiceSchema), async (c) => {
@@ -128,6 +192,7 @@ invoiceRoutes.post("/", validate("json", createInvoiceSchema), async (c) => {
       amountPaid: 0,
       notes: input.notes ?? null,
       createdBy: user.id,
+      shareToken: randomToken(24),
       createdAt: now,
       updatedAt: now,
     }).onConflictDoNothing({ target: invoices.id }),

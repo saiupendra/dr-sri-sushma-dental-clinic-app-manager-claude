@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { PAYMENT_METHODS, type PaymentMethod } from "@clinic/shared";
-import { useDeletePayment, useInvoice, useRecordPayment } from "../../hooks/useInvoices.js";
+import { buildWhatsAppUrl, CLINIC_NAME, PAYMENT_METHODS, type PaymentMethod } from "@clinic/shared";
+import {
+  invoicePdfUrl,
+  invoicePublicPdfUrl,
+  useDeletePayment,
+  useInvoice,
+  useRecordPayment,
+} from "../../hooks/useInvoices.js";
 import { usePatient } from "../../hooks/usePatients.js";
 import { formatDateTime } from "../../lib/dates.js";
 import { ApiError } from "../../api/client.js";
@@ -22,6 +28,13 @@ export function InvoiceDetailPage() {
   if (!invoice) return <p className="text-sm text-slate-500">Invoice not found.</p>;
 
   const outstanding = invoice.totalAmount - invoice.amountPaid;
+
+  function onSendViaWhatsApp() {
+    if (!invoice || !patient || !invoice.shareToken) return;
+    const shareUrl = invoicePublicPdfUrl(invoice.id, invoice.shareToken);
+    const message = `Hi ${patient.name}, here is your invoice from ${CLINIC_NAME}: total ₹${invoice.totalAmount.toFixed(2)}${outstanding > 0 ? `, balance due ₹${outstanding.toFixed(2)}` : ""}. View or download it here: ${shareUrl}`;
+    window.open(buildWhatsAppUrl(patient.phone, message), "_blank", "noopener");
+  }
 
   async function onRecordPayment(e: React.FormEvent) {
     e.preventDefault();
@@ -49,10 +62,25 @@ export function InvoiceDetailPage() {
 
       {patient && (
         <Card>
-          <Link to={`/patients/${patient.id}`} className="font-medium text-brand-700 hover:underline">
-            {patient.name}
-          </Link>
-          <p className="text-sm text-slate-500">{patient.phone}</p>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <Link to={`/patients/${patient.id}`} className="font-medium text-brand-700 hover:underline">
+                {patient.name}
+              </Link>
+              <p className="text-sm text-slate-500">{patient.phone}</p>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <a
+                href={invoicePdfUrl(invoice.id)}
+                className="inline-flex items-center justify-center rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              >
+                Download
+              </a>
+              <Button size="sm" variant="secondary" onClick={onSendViaWhatsApp} disabled={!invoice.shareToken}>
+                Send via WhatsApp
+              </Button>
+            </div>
+          </div>
         </Card>
       )}
 
