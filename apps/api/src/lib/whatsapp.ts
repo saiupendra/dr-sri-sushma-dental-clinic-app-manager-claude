@@ -8,8 +8,9 @@ export function toWhatsAppNumber(rawPhone: string): string {
   return digits;
 }
 
-export function defaultReminderMessage(patientName: string, startAtIso: string): string {
-  const dt = new Date(startAtIso);
+/** e.g. "5 October 2026 at 4:30 PM", in the clinic's own timezone regardless of server/runtime locale. */
+export function formatIstDateTime(iso: string): string {
+  const dt = new Date(iso);
   const date = dt.toLocaleDateString("en-IN", {
     day: "numeric",
     month: "long",
@@ -22,7 +23,11 @@ export function defaultReminderMessage(patientName: string, startAtIso: string):
     hour12: true,
     timeZone: "Asia/Kolkata",
   });
-  return `Hi ${patientName}, this is a reminder from ${CLINIC_NAME} for your appointment on ${date} at ${time}. Reply here or call us if you need to reschedule.`;
+  return `${date} at ${time}`;
+}
+
+export function defaultReminderMessage(patientName: string, startAtIso: string): string {
+  return `Hi ${patientName}, this is a reminder from ${CLINIC_NAME} for your appointment on ${formatIstDateTime(startAtIso)}. Reply here or call us if you need to reschedule.`;
 }
 
 export function buildWhatsAppUrl(rawPhone: string, message: string): string {

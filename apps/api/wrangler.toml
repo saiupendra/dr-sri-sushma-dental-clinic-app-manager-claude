@@ -72,6 +72,15 @@ bucket_name = "clinic-files"
 ENVIRONMENT = "production"
 ALLOWED_ORIGIN = "https://app.drsrisushmadentalclinic.com"
 COOKIE_DOMAIN = ".drsrisushmadentalclinic.com"
+# Automatic completed-appointment WhatsApp message (see src/lib/whatsappCloudApi.ts).
+# Uncomment once a Meta WhatsApp Business Cloud API account exists and a
+# template has been submitted and approved in WhatsApp Manager. The template
+# must take exactly 2 body variables, in order: patient name, then the
+# appointment's date/time. The access token is a secret, never a var - set it
+# with `wrangler secret put WHATSAPP_CLOUD_API_TOKEN --env production`.
+# WHATSAPP_PHONE_NUMBER_ID = ""
+# WHATSAPP_COMPLETED_TEMPLATE_NAME = ""
+# WHATSAPP_COMPLETED_TEMPLATE_LANG = "en"
 
 # Nightly backup export (see src/routes/internal/backup.ts). 21:00 UTC = 2:30am IST.
 [env.production.triggers]

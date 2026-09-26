@@ -7,11 +7,13 @@ import {
   updateAppointmentSchema,
 } from "@clinic/shared";
 import { getDb, type Db } from "../db/client.js";
-import { appointments, patients, staff } from "../db/schema.js";
+import { appointments, patients, reminders, staff } from "../db/schema.js";
 import { conflict, notFound } from "../lib/responses.js";
 import { rangesOverlap } from "../lib/scheduling.js";
 import { requireAuth } from "../middleware/auth.js";
 import { validate } from "../lib/validate.js";
+import { formatIstDateTime } from "../lib/whatsapp.js";
+import { isWhatsAppCloudApiConfigured, sendWhatsAppTemplateMessage } from "../lib/whatsappCloudApi.js";
 import type { AppContext } from "../types.js";
 
 export const appointmentRoutes = new Hono<AppContext>();
@@ -85,6 +87,46 @@ async function hasConflict(
     .from(appointments)
     .where(and(...conditions));
   return rows.some((row) => rangesOverlap(row.startAt, row.endAt, startAt, endAt));
+}
+
+/**
+ * Fires the zero-touch WhatsApp message the moment an appointment becomes
+ * completed - no "send reminder" button for staff to click. Requires a real
+ * Meta WhatsApp Cloud API account and an already-approved template (see
+ * lib/whatsappCloudApi.ts); until that's configured this silently no-ops,
+ * same as if the feature didn't exist yet. Always logged to the reminders
+ * table (status "sent" or "failed") so the outcome is visible on the
+ * appointment page exactly like a manually-sent one, with no staff member
+ * as sentBy since nobody clicked anything.
+ */
+async function sendAutomaticCompletionMessage(
+  db: Db,
+  env: AppContext["Bindings"],
+  appointmentId: string,
+  patientId: string,
+  patientPhone: string,
+  patientName: string,
+  startAt: string,
+): Promise<void> {
+  if (!isWhatsAppCloudApiConfigured(env)) return;
+
+  const result = await sendWhatsAppTemplateMessage(env, patientPhone, [patientName, formatIstDateTime(startAt)]);
+  const now = new Date().toISOString();
+  await db.insert(reminders).values({
+    id: crypto.randomUUID(),
+    appointmentId,
+    patientId,
+    channel: "whatsapp",
+    status: result.ok ? "sent" : "failed",
+    message: result.ok
+      ? `Automatic WhatsApp message sent for the completed appointment on ${formatIstDateTime(startAt)}.`
+      : `Automatic WhatsApp message failed: ${result.error}`,
+    scheduledFor: now,
+    sentAt: result.ok ? now : null,
+    sentBy: null,
+    createdAt: now,
+    updatedAt: now,
+  });
 }
 
 appointmentRoutes.get("/", validate("query", appointmentListQuerySchema), async (c) => {
@@ -199,6 +241,13 @@ appointmentRoutes.patch(
       .where(eq(appointments.id, id));
 
     const item = await withPatientAndStaff(db, id);
+
+    // Only on the transition into "completed", not every subsequent edit to
+    // an already-completed appointment (e.g. a typo fix to its notes).
+    if (item && existing.status !== "completed" && status === "completed") {
+      await sendAutomaticCompletionMessage(db, c.env, id, item.patientId, item.patientPhone, item.patientName, item.startAt);
+    }
+
     return c.json({ item });
   },
 );
