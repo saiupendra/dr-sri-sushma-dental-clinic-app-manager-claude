@@ -25,13 +25,16 @@ test("records patient details and a treatment note, and stays readable offline",
   await expect(page.getByText("Allergic to penicillin.")).toBeVisible();
 
   await page.getByRole("button", { name: "Tooth chart" }).click();
+  // Tapping a tooth only selects it (multiple teeth can be picked for one
+  // sitting) - Next is what actually moves on to Treatment notes.
   await page.getByRole("button", { name: /^16$/ }).click();
-  // Clicking a tooth lands on Treatment notes with the add-note form already
-  // open and pre-filled with that tooth (it used to just switch tabs and
-  // silently drop which tooth was clicked, leaving no way to tell it apart
-  // from opening the form with nothing selected). The tooth is shown as a
-  // locked display rather than a re-editable input, since it's already been
-  // picked on the chart.
+  await page.getByRole("button", { name: /^Next/ }).click();
+  // Landing on Treatment notes opens the add-note form already, pre-filled
+  // with the tooth/teeth picked on the chart (it used to just switch tabs
+  // and silently drop which tooth was clicked, leaving no way to tell it
+  // apart from opening the form with nothing selected). The tooth is shown
+  // as a locked display rather than a re-editable input, since it's already
+  // been picked on the chart.
   await expect(page.locator("#tooth")).toContainText("16");
   await page.fill("#procedure", "Composite filling");
   await page.selectOption("#condition", "filled");
@@ -44,6 +47,25 @@ test("records patient details and a treatment note, and stays readable offline",
     "title",
     /Filled/,
   );
+
+  // Selecting several teeth before Next creates one treatment note per
+  // tooth, all sharing the same procedure/condition/photo from one form.
+  await page.getByRole("button", { name: /^11$/ }).click();
+  await page.getByRole("button", { name: /^12$/ }).click();
+  await page.getByRole("button", { name: /^Next/ }).click();
+  await expect(page.locator("#tooth")).toContainText("11");
+  await expect(page.locator("#tooth")).toContainText("12");
+  await page.fill("#procedure", "Scaling");
+  // Exercises the new "Others" condition, which requires manual entry.
+  await page.selectOption("#condition", "other");
+  await page.fill("#conditionOther", "Mild staining");
+  await page.setInputFiles("#beforePhoto", BEFORE_TREATMENT_PHOTO);
+  await page.getByRole("button", { name: "Save treatment note for 2 teeth" }).click();
+  await expect(page.getByText("Other — Mild staining").first()).toBeVisible();
+
+  await page.getByRole("button", { name: "Tooth chart" }).click();
+  await expect(page.getByRole("button", { name: /^11$/ })).toHaveAttribute("title", /Other — Mild staining/);
+  await expect(page.getByRole("button", { name: /^12$/ })).toHaveAttribute("title", /Other — Mild staining/);
 
   // Now go offline and revisit the same patient via client-side navigation
   // (nav-link clicks, never a full page reload — that would drop the

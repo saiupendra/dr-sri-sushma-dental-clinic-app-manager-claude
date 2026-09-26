@@ -24,6 +24,7 @@ function toTreatment(row: typeof treatmentRecords.$inferSelect) {
     appointmentId: row.appointmentId,
     toothNumber: row.toothNumber,
     condition: row.condition,
+    conditionOther: row.conditionOther,
     procedure: row.procedure,
     notes: row.notes,
     prescription: row.prescription,
@@ -96,6 +97,7 @@ treatmentRoutes.post(
         appointmentId: input.appointmentId ?? null,
         toothNumber: input.toothNumber ?? null,
         condition: input.condition,
+        conditionOther: input.condition === "other" ? (input.conditionOther ?? null) : null,
         procedure: input.procedure,
         notes: input.notes ?? null,
         prescription: input.prescription ?? null,
@@ -165,9 +167,13 @@ treatmentRoutes.patch(
       .limit(1);
     if (!existing) throw notFound("Treatment record");
 
+    // Never leave a stale "other" description behind once the condition is
+    // changed away from "other" (the client isn't required to clear it itself).
+    const conditionOther = input.condition && input.condition !== "other" ? null : input.conditionOther;
+
     await db
       .update(treatmentRecords)
-      .set({ ...input, updatedAt: new Date().toISOString() })
+      .set({ ...input, conditionOther, updatedAt: new Date().toISOString() })
       .where(eq(treatmentRecords.id, id));
 
     const [row] = await db.select().from(treatmentRecords).where(eq(treatmentRecords.id, id)).limit(1);

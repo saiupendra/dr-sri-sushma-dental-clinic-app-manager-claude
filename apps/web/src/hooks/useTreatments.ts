@@ -35,6 +35,7 @@ export function useCreateTreatmentRecord(patientId: string) {
         appointmentId: vars.appointmentId ?? null,
         toothNumber: vars.toothNumber ?? null,
         condition: vars.condition ?? null,
+        conditionOther: vars.conditionOther ?? null,
         procedure: vars.procedure,
         notes: vars.notes ?? null,
         prescription: vars.prescription ?? null,

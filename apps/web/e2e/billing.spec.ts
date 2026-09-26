@@ -51,3 +51,44 @@ test("creates an invoice and records payments through to paid", async ({ page })
   await expect(page.getByText("paid", { exact: true })).toBeVisible();
   await expect(page.getByText("₹2900.00 via Amazon Pay")).toBeVisible();
 });
+
+// Covers a percentage discount and a cash discount applied together.
+test("applies a combined percentage and cash discount when creating an invoice", async ({ page }) => {
+  await loginAsDoctor(page);
+  const patient = uniquePatient("Discount Patient");
+
+  await page.goto("/patients/new");
+  await page.fill("#name", patient.name);
+  await page.fill("#phone", patient.phone);
+  await page.fill("#address", "123 Test Street");
+  await page.fill("#medicalHistoryNotes", "None known.");
+  await page.fill("#consultationFee", "500");
+  await page.click('button[type="submit"]');
+  await expect(page).toHaveURL(/\/patients\/[a-f0-9-]+$/);
+  const patientId = page.url().split("/").pop()!;
+
+  await page.getByRole("button", { name: "Treatment notes" }).click();
+  await page.getByRole("button", { name: "+ Add treatment note" }).click();
+  await page.fill("#procedure", "Root canal");
+  await page.selectOption("#condition", "root_canal_treated");
+  await page.setInputFiles("#beforePhoto", BEFORE_TREATMENT_PHOTO);
+  await page.getByRole("button", { name: "Save treatment note" }).click();
+  await expect(page.getByText("Root canal", { exact: true })).toBeVisible();
+
+  await page.goto(`/billing/new?patientId=${patientId}`);
+  await page.getByRole("button", { name: "+ Add line" }).click();
+  await page.locator('input[placeholder^="Description"]').fill("Root canal treatment");
+  await page.locator('input[placeholder="Cost"]').fill("1500");
+  await page.getByLabel("Units").fill("1");
+  // Subtotal is 500 (consultation) + 1500 = 2000. 10% off (200) plus a
+  // further ₹100 flat off combine to a ₹300 discount, for a ₹1700 total.
+  await page.fill("#discountPercent", "10");
+  await page.fill("#discountAmount", "100");
+  await expect(page.getByText("₹1700.00")).toBeVisible();
+
+  await page.getByRole("button", { name: "Create invoice" }).click();
+  await expect(page).toHaveURL(/\/billing\/[a-f0-9-]+$/);
+  await expect(page.getByRole("heading", { level: 1, name: /₹1700\.00/ })).toBeVisible();
+  await expect(page.getByText("₹2000.00")).toBeVisible();
+  await expect(page.getByText("- ₹300.00")).toBeVisible();
+});

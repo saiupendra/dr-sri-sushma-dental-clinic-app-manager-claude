@@ -10,7 +10,7 @@ import clinicLogo from "../assets/logo.png";
 
 export function LoginPage() {
   const { user, login } = useAuth();
-  const { data: bootstrapStatus } = useBootstrapStatus();
+  const { data: bootstrapStatus, isPending: isCheckingSetup, refetch: retrySetup } = useBootstrapStatus();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -25,6 +25,25 @@ export function LoginPage() {
     const from = (location.state as { from?: Location } | null)?.from;
     const redirectTo = from ? `${from.pathname}${from.search ?? ""}` : "/";
     return <Navigate to={redirectTo} replace />;
+  }
+  if (isCheckingSetup || !bootstrapStatus) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+        <Card className="w-full max-w-sm text-center">
+          <h1 className="text-lg font-semibold text-slate-900">Clinic Manager</h1>
+          {isCheckingSetup ? (
+            <p className="mt-2 text-sm text-slate-500">Checking whether this clinic needs first-time setup…</p>
+          ) : (
+            <>
+              <p className="mt-2 text-sm text-slate-500">
+                We could not check whether this clinic needs first-time setup. Check your connection and try again.
+              </p>
+              <Button className="mt-4" onClick={() => void retrySetup()}>Try again</Button>
+            </>
+          )}
+        </Card>
+      </div>
+    );
   }
   if (bootstrapStatus?.needsBootstrap) {
     return <Navigate to="/setup" replace />;
@@ -46,6 +65,9 @@ export function LoginPage() {
           <img src={clinicLogo} alt="Clinic logo" className="mx-auto mb-3 h-14 w-14 rounded-2xl object-contain" />
           <h1 className="text-lg font-semibold text-slate-900">Clinic Manager</h1>
           <p className="text-sm text-slate-500">Dr.Sri Sushma Multispeciality Dental Clinic</p>
+          <p className="mt-3 text-sm text-slate-500">
+            This clinic already has an account. If you did not create it, ask the person who set up the clinic for access.
+          </p>
         </div>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
           <div>

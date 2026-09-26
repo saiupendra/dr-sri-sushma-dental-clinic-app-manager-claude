@@ -40,6 +40,10 @@ export interface InvoicePdfInput {
   patientName: string;
   patientPhone: string;
   items: InvoicePdfItem[];
+  /** Sum of item amounts before any discount; omitted (legacy callers/tests) is treated as equal to totalAmount. */
+  subtotal?: number;
+  discountPercent?: number;
+  discountAmount?: number;
   totalAmount: number;
   amountPaid: number;
   payments?: InvoicePdfPayment[];
@@ -129,8 +133,11 @@ function drawPageChrome(
   const top = PAGE_HEIGHT - MARGIN;
   const textX = MARGIN + LOGO_SIZE + 14;
   page.drawImage(logo, { x: MARGIN, y: top - LOGO_SIZE + 8, width: LOGO_SIZE, height: LOGO_SIZE });
-  // The standard Courier font renders consistently in browser/PDF viewers;
-  // keep the clinic name compact enough to clear the invoice number.
+  // Helvetica is one of the 14 standard PDF fonts, so it renders consistently
+  // in every viewer with no embedding needed (same reason Courier was used
+  // before) - proportional spacing just reads cleaner than a monospace face
+  // for a letterhead. Keep the clinic name compact enough to clear the
+  // invoice number regardless.
   page.drawText(CLINIC_NAME, { x: textX, y: top - 8, size: 10.5, font: fontBold, color: DARK });
 
   // Full-width from here down - see HEADER_TOP_ZONE_BOTTOM above.
@@ -168,8 +175,8 @@ function drawPageChrome(
 
 export async function generateInvoicePdf(input: InvoicePdfInput): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create();
-  const font = await pdfDoc.embedFont(StandardFonts.Courier);
-  const fontBold = await pdfDoc.embedFont(StandardFonts.CourierBold);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const logoBytes = Uint8Array.from(atob(CLINIC_LOGO_PNG_BASE64), (c) => c.charCodeAt(0));
   const logo = await pdfDoc.embedPng(logoBytes);
 
@@ -290,8 +297,9 @@ export async function generateInvoicePdf(input: InvoicePdfInput): Promise<Uint8A
     }));
     rightText(formatCellAmount(item.amount / units), 3, baseline);
     rightText(String(units), 4, baseline);
-    // No tax or discount is configured in this app. Both amounts therefore
-    // represent the same actual line total, without implying a tax charge.
+    // No tax, and no per-item discount, is configured in this app - a
+    // discount is invoice-level only (see the summary below), so both
+    // amounts here represent the same actual line total.
     rightText(formatCellAmount(item.amount), 5, baseline);
     rightText(formatCellAmount(item.amount), 6, baseline);
     drawRule(y - rowHeight);
@@ -311,15 +319,25 @@ export async function generateInvoicePdf(input: InvoicePdfInput): Promise<Uint8A
   const ensureRoom = (height: number) => {
     if (y - height < tableBottom) beginSummaryPage();
   };
-  ensureRoom(88);
+  const subtotal = input.subtotal ?? input.totalAmount;
+  const discountValue = Math.max(0, Math.round((subtotal - input.totalAmount) * 100) / 100);
+  const showDiscount = discountValue > 0;
+  ensureRoom(showDiscount ? 124 : 88);
   y -= 20;
   const balanceDue = Math.max(0, input.totalAmount - input.amountPaid);
-  const summaryRow = (label: string, amount: number, strong = false) => {
+  const summaryRow = (label: string, amount: number, strong = false, prefix = "") => {
     page.drawText(label, { x: columns[4]!, y, size: 9, font: strong ? fontBold : font, color: DARK });
-    const value = formatMoney(amount);
+    const value = `${prefix}${formatMoney(amount)}`;
     page.drawText(value, { x: rightColX - fontBold.widthOfTextAtSize(value, 9) - 4, y, size: 9, font: strong ? fontBold : font, color: DARK });
     y -= 18;
   };
+  if (showDiscount) {
+    summaryRow("Subtotal", subtotal);
+    const pct = input.discountPercent ?? 0;
+    const amt = input.discountAmount ?? 0;
+    const parts = [pct > 0 ? `${pct}%` : null, amt > 0 ? formatMoney(amt) : null].filter((v): v is string => v !== null);
+    summaryRow(parts.length ? `Discount (${parts.join(" + ")})` : "Discount", discountValue, false, "- ");
+  }
   summaryRow("Total Gross Amt", input.totalAmount, true);
   summaryRow("Received", input.amountPaid);
   summaryRow("Balance due", balanceDue, true);

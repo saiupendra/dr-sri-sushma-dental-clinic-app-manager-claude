@@ -15,6 +15,9 @@ export const treatmentRecordSchema = z
     appointmentId: idSchema.nullable(),
     toothNumber: toothNumberSchema.nullable(),
     condition: z.enum(TOOTH_CONDITIONS).nullable(),
+    // Free-text description, set only when condition is "other" - see the
+    // .refine() on createTreatmentRecordSchema below.
+    conditionOther: z.string().max(200).nullable(),
     procedure: z.string().min(1).max(200),
     notes: z.string().max(4000).nullable(),
     prescription: z.string().max(2000).nullable(),
@@ -28,12 +31,16 @@ export const treatmentRecordSchema = z
   .merge(timestampsSchema);
 export type TreatmentRecord = z.infer<typeof treatmentRecordSchema>;
 
-export const createTreatmentRecordSchema = z.object({
+// Split from createTreatmentRecordSchema so .omit()/.partial() below (for the
+// update schema) can still work - a ZodEffects (from .refine()) doesn't
+// support those, so the refine is applied only to the create schema.
+const treatmentRecordInputShape = z.object({
   id: idSchema.optional(),
   patientId: idSchema,
   appointmentId: optionalString(idSchema),
   toothNumber: optionalString(toothNumberSchema),
   condition: z.enum(TOOTH_CONDITIONS),
+  conditionOther: z.string().max(200).optional(),
   procedure: z.string().min(1).max(200),
   notes: z.string().max(4000).optional(),
   prescription: z.string().max(2000).optional(),
@@ -44,9 +51,14 @@ export const createTreatmentRecordSchema = z.object({
   // before it can be referenced here.
   beforeTreatmentFileId: idSchema,
 });
+
+export const createTreatmentRecordSchema = treatmentRecordInputShape.refine(
+  (data) => data.condition !== "other" || !!data.conditionOther?.trim(),
+  { message: "Describe the condition", path: ["conditionOther"] },
+);
 export type CreateTreatmentRecordInput = z.infer<typeof createTreatmentRecordSchema>;
 
-export const updateTreatmentRecordSchema = createTreatmentRecordSchema
+export const updateTreatmentRecordSchema = treatmentRecordInputShape
   .omit({ id: true, patientId: true })
   .partial();
 export type UpdateTreatmentRecordInput = z.infer<typeof updateTreatmentRecordSchema>;
@@ -66,6 +78,7 @@ export type TreatmentListQuery = z.infer<typeof treatmentListQuerySchema>;
 export const toothChartEntrySchema = z.object({
   toothNumber: toothNumberSchema,
   condition: z.enum(TOOTH_CONDITIONS),
+  conditionOther: z.string().nullable(),
   lastTreatmentRecordId: idSchema.nullable(),
   lastUpdated: isoDateSchema.nullable(),
 });

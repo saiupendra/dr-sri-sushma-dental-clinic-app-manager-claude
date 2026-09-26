@@ -14,6 +14,7 @@ export async function getToothChart(db: Db, patientId: string): Promise<ToothCha
     .select({
       toothNumber: treatmentRecords.toothNumber,
       condition: treatmentRecords.condition,
+      conditionOther: treatmentRecords.conditionOther,
       id: treatmentRecords.id,
       date: treatmentRecords.date,
     })
@@ -28,10 +29,15 @@ export async function getToothChart(db: Db, patientId: string): Promise<ToothCha
     )
     .orderBy(desc(treatmentRecords.date), desc(treatmentRecords.createdAt));
 
-  const latestByTooth = new Map<string, { condition: string; id: string; date: string }>();
+  const latestByTooth = new Map<string, { condition: string; conditionOther: string | null; id: string; date: string }>();
   for (const row of rows) {
     if (!row.toothNumber || latestByTooth.has(row.toothNumber)) continue;
-    latestByTooth.set(row.toothNumber, { condition: row.condition!, id: row.id, date: row.date });
+    latestByTooth.set(row.toothNumber, {
+      condition: row.condition!,
+      conditionOther: row.conditionOther,
+      id: row.id,
+      date: row.date,
+    });
   }
 
   return FDI_PERMANENT_TEETH.map((toothNumber) => {
@@ -39,6 +45,7 @@ export async function getToothChart(db: Db, patientId: string): Promise<ToothCha
     return {
       toothNumber,
       condition: (latest?.condition ?? "healthy") as ToothChartEntry["condition"],
+      conditionOther: latest?.conditionOther ?? null,
       lastTreatmentRecordId: latest?.id ?? null,
       lastUpdated: latest?.date ?? null,
     };
