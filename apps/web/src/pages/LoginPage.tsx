@@ -6,6 +6,7 @@ import { useAuth } from "../auth/useAuth.js";
 import { useBootstrapStatus } from "../auth/useCurrentUser.js";
 import { ApiError } from "../api/client.js";
 import { Button, Card, FieldError, Input, Label } from "../components/ui.js";
+import clinicLogo from "../assets/logo.png";
 
 export function LoginPage() {
   const { user, login } = useAuth();
@@ -42,9 +43,7 @@ export function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
       <Card className="w-full max-w-sm">
         <div className="mb-6 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-900 text-lg font-semibold text-white">
-            +
-          </div>
+          <img src={clinicLogo} alt="Clinic logo" className="mx-auto mb-3 h-14 w-14 rounded-2xl object-contain" />
           <h1 className="text-lg font-semibold text-slate-900">Clinic Manager</h1>
           <p className="text-sm text-slate-500">Dr.Sri Sushma Multispeciality Dental Clinic</p>
         </div>

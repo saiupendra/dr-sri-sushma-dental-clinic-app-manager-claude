@@ -9,7 +9,7 @@ import {
 } from "@clinic/shared";
 import type { InvoiceStatus } from "@clinic/shared";
 import { getDb, type Db } from "../db/client.js";
-import { invoiceItems, invoices, patients, payments, treatmentRecords } from "../db/schema.js";
+import { invoiceItems, invoices, patients, payments, staff, treatmentRecords } from "../db/schema.js";
 import { deriveInvoiceStatus } from "../lib/billing.js";
 import { randomToken } from "../lib/crypto.js";
 import { generateInvoicePdf } from "../lib/invoicePdf.js";
@@ -69,9 +69,14 @@ export async function loadInvoicePdfBytes(db: Db, id: string, requireShareToken?
       shareToken: invoices.shareToken,
       patientName: patients.name,
       patientPhone: patients.phone,
+      generatedByName: staff.name,
     })
     .from(invoices)
     .innerJoin(patients, eq(invoices.patientId, patients.id))
+    // Left, not inner: createdBy is nullable (pre-existing rows, or the
+    // account that created it was later removed), and the invoice must
+    // still render either way - the PDF just omits the footer credit.
+    .leftJoin(staff, eq(invoices.createdBy, staff.id))
     .where(and(eq(invoices.id, id), isNull(invoices.deletedAt)))
     .limit(1);
   if (!row) return null;
@@ -91,6 +96,7 @@ export async function loadInvoicePdfBytes(db: Db, id: string, requireShareToken?
     items,
     totalAmount: row.totalAmount,
     amountPaid: row.amountPaid,
+    generatedByName: row.generatedByName,
   });
 }
 

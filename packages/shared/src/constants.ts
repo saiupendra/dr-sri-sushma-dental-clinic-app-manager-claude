@@ -1,6 +1,9 @@
 /** Used only to build reminder message text; all other clinic facts (address, hours) live outside this app. */
 export const CLINIC_NAME = "Dr.Sri Sushma Multispeciality Dental Clinic";
 
+/** GSTIN printed on generated invoice PDFs. */
+export const CLINIC_GSTIN = "36APBPY6938F1ZF";
+
 /**
  * Staff roles. Admin is the system/operations role (staff accounts,
  * sessions, exports) and is never a treating clinician - clinical routes
