@@ -38,7 +38,12 @@ test("records patient details and a treatment note, and stays readable offline",
   await expect(page.locator("#tooth")).toContainText("16");
   await page.fill("#procedure", "Composite filling");
   await page.selectOption("#condition", "filled");
-  await page.setInputFiles("#beforePhoto", BEFORE_TREATMENT_PHOTO);
+  await page.fill("#notes", "Cavity cleaned and filled.");
+  await page.fill("#prescription", "Ibuprofen 400mg if needed.");
+  // The work already happened this visit, so mark it completed rather than
+  // leaving the new default (planned) - planned would bounce to scheduling.
+  await page.selectOption("#status", "completed");
+  await page.setInputFiles("#beforePhoto-16", BEFORE_TREATMENT_PHOTO);
   await page.getByRole("button", { name: "Save treatment note" }).click();
   await expect(page.getByText("Composite filling")).toBeVisible();
 
@@ -59,7 +64,12 @@ test("records patient details and a treatment note, and stays readable offline",
   // Exercises the new "Others" condition, which requires manual entry.
   await page.selectOption("#condition", "other");
   await page.fill("#conditionOther", "Mild staining");
-  await page.setInputFiles("#beforePhoto", BEFORE_TREATMENT_PHOTO);
+  await page.fill("#notes", "Light staining removed from both teeth.");
+  await page.fill("#prescription", "None required.");
+  await page.selectOption("#status", "completed");
+  // Multi-tooth selection needs its own before-treatment photo per tooth.
+  await page.setInputFiles("#beforePhoto-11", BEFORE_TREATMENT_PHOTO);
+  await page.setInputFiles("#beforePhoto-12", BEFORE_TREATMENT_PHOTO);
   await page.getByRole("button", { name: "Save treatment note for 2 teeth" }).click();
   await expect(page.getByText("Other — Mild staining").first()).toBeVisible();
 
@@ -81,4 +91,62 @@ test("records patient details and a treatment note, and stays readable offline",
   await expect(page).toHaveURL(patientUrl);
   await expect(page.getByText("Allergic to penicillin.")).toBeVisible();
   await context.setOffline(false);
+});
+
+// Covers the "planned by default, mandatory notes/prescription, and mapped
+// to a booked appointment" treatment-note behavior together, since they're
+// one connected flow in the form.
+test("defaults a treatment note to planned, requires notes and a prescription, and maps it to a linked appointment", async ({ page }) => {
+  await loginAsDoctor(page);
+  const patient = uniquePatient("Planned Treatment Patient");
+
+  await page.goto("/patients/new");
+  await page.fill("#name", patient.name);
+  await page.fill("#phone", patient.phone);
+  await page.fill("#address", "123 Test Street");
+  await page.fill("#medicalHistoryNotes", "None known.");
+  await page.fill("#consultationFee", "500");
+  await page.click('button[type="submit"]');
+  await expect(page).toHaveURL(/\/patients\/[a-f0-9-]+$/);
+  const patientUrl = page.url();
+
+  await page.goto("/appointments/new");
+  await page.fill('input[placeholder="Search by name or phone…"]', patient.name);
+  await page.getByRole("button", { name: new RegExp(patient.name) }).click();
+  await page.fill("#start", "2026-12-05T10:00");
+  await page.fill("#duration", "30");
+  await page.getByRole("button", { name: "Save appointment" }).click();
+  await expect(page).toHaveURL(/\/appointments\/[a-f0-9-]+$/);
+
+  await page.goto(patientUrl);
+  await page.getByRole("button", { name: "Tooth chart" }).click();
+  await page.getByRole("button", { name: /^24$/ }).click();
+  await page.getByRole("button", { name: /^Next/ }).click();
+
+  await page.fill("#procedure", "Crown fitting");
+  await page.selectOption("#condition", "crown");
+  // Confirm the new default before touching it - nothing here changes status.
+  await expect(page.locator("#status")).toHaveValue("planned");
+
+  await page.setInputFiles("#beforePhoto-24", BEFORE_TREATMENT_PHOTO);
+  await page.getByRole("button", { name: "Save treatment note" }).click();
+  await expect(page.getByText("Add treatment notes.")).toBeVisible();
+
+  await page.fill("#notes", "Prep done, crown ordered from the lab.");
+  await page.getByRole("button", { name: "Save treatment note" }).click();
+  await expect(page.getByText("Add a prescription.")).toBeVisible();
+
+  await page.fill("#prescription", "None required yet.");
+  // Only one appointment exists for this patient - pick it by position
+  // rather than its exact label text (date/time formatting is incidental).
+  const appointmentValue = await page.locator("#appointment option").nth(1).getAttribute("value");
+  await page.selectOption("#appointment", appointmentValue!);
+  // Linking the appointment pulls the note's date onto the appointment's date.
+  await expect(page.locator("#date")).toHaveValue("2026-12-05");
+
+  await page.getByRole("button", { name: "Save treatment note" }).click();
+  // Already linked to a booked appointment, so this must NOT bounce to
+  // /appointments/new the way an unlinked planned note would.
+  await expect(page).toHaveURL(patientUrl);
+  await expect(page.getByText("Crown fitting")).toBeVisible();
 });

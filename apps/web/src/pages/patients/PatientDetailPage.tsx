@@ -8,11 +8,12 @@ import {
   useUpdateTreatmentRecord,
   useUpdateTreatmentStatus,
 } from "../../hooks/useTreatments.js";
+import { useAppointmentsList } from "../../hooks/useAppointments.js";
 import { useDeleteFile, useFilesList, useUploadFile, fileDownloadUrl } from "../../hooks/useFiles.js";
 import { useInvoicesList } from "../../hooks/useInvoices.js";
 import { useAuth } from "../../auth/useAuth.js";
 import { ToothChart } from "../../components/ToothChart.js";
-import { formatDate, formatDateTime, todayDateInputValue } from "../../lib/dates.js";
+import { formatDate, formatDateTime, todayDateInputValue, toLocalDateString } from "../../lib/dates.js";
 import { compressImageForUpload } from "../../lib/imageCompression.js";
 import { ApiError } from "../../api/client.js";
 import { Badge, Button, Card, EmptyState, FieldError, Input, Label, PageHeader, Select, Textarea } from "../../components/ui.js";
@@ -374,6 +375,14 @@ function TreatmentEditForm({
       setError("Describe the condition.");
       return;
     }
+    if (!form.notes.trim()) {
+      setError("Add treatment notes.");
+      return;
+    }
+    if (!form.prescription.trim()) {
+      setError("Add a prescription.");
+      return;
+    }
     try {
       await updateTreatment.mutateAsync({
         procedure: form.procedure,
@@ -381,8 +390,8 @@ function TreatmentEditForm({
         toothNumber: (form.toothNumber || undefined) as never,
         condition: form.condition as never,
         conditionOther: form.condition === "other" ? form.conditionOther.trim() : undefined,
-        notes: form.notes || undefined,
-        prescription: form.prescription || undefined,
+        notes: form.notes.trim(),
+        prescription: form.prescription.trim(),
       });
       onSaved();
     } catch (err) {
@@ -451,7 +460,7 @@ function TreatmentEditForm({
           </div>
         )}
         <div>
-          <Label htmlFor={`edit-notes-${treatment.id}`}>Notes (optional)</Label>
+          <Label htmlFor={`edit-notes-${treatment.id}`}>Notes</Label>
           <Textarea
             id={`edit-notes-${treatment.id}`}
             rows={2}
@@ -460,7 +469,7 @@ function TreatmentEditForm({
           />
         </div>
         <div>
-          <Label htmlFor={`edit-prescription-${treatment.id}`}>Prescription (optional)</Label>
+          <Label htmlFor={`edit-prescription-${treatment.id}`}>Prescription</Label>
           <Textarea
             id={`edit-prescription-${treatment.id}`}
             rows={2}
@@ -494,17 +503,42 @@ function TreatmentForm({
   const navigate = useNavigate();
   const uploadPhoto = useUploadFile();
   const hasInitialTeeth = !!initialTeeth?.length;
+  const { data: patientAppointments } = useAppointmentsList({ patientId });
+  // Only appointments still ahead of us are worth linking a planned
+  // treatment to - a completed/cancelled/no-show one is history, not a slot
+  // this note's work can still happen in.
+  const linkableAppointments = (patientAppointments ?? [])
+    .filter((a) => a.status === "scheduled" || a.status === "confirmed")
+    .sort((a, b) => a.startAt.localeCompare(b.startAt));
+
   const [form, setForm] = useState<Partial<CreateTreatmentRecordInput>>({
     date: todayDateInputValue(),
-    status: "completed",
+    status: "planned",
   });
   const [photoFile, setPhotoFile] = useState<File | null>(null);
+  // Keyed by tooth number - one photo per selected tooth (see the photo
+  // section below), used only on the chart-driven, multi-tooth path.
+  const [photoFiles, setPhotoFiles] = useState<Record<string, File | null>>({});
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
+
+  function onAppointmentChange(appointmentId: string) {
+    const appt = linkableAppointments.find((a) => a.id === appointmentId);
+    setForm((f) => ({
+      ...f,
+      appointmentId: appointmentId || undefined,
+      // The note's date follows the appointment it's mapped to.
+      date: appt ? toLocalDateString(appt.startAt) : f.date,
+    }));
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.procedure) {
+    const procedure = form.procedure?.trim();
+    const notes = form.notes?.trim();
+    const prescription = form.prescription?.trim();
+    if (!procedure) {
       setError("Describe the procedure.");
       return;
     }
@@ -516,39 +550,58 @@ function TreatmentForm({
       setError("Describe the condition.");
       return;
     }
-    if (!photoFile) {
+    if (!notes) {
+      setError("Add treatment notes.");
+      return;
+    }
+    if (!prescription) {
+      setError("Add a prescription.");
+      return;
+    }
+    const teeth = hasInitialTeeth ? initialTeeth! : [form.toothNumber];
+    if (hasInitialTeeth && teeth.some((tooth) => !photoFiles[tooth!])) {
+      setError("Add a before-treatment photo for every selected tooth.");
+      return;
+    }
+    if (!hasInitialTeeth && !photoFile) {
       setError("Add a before-treatment photo.");
       return;
     }
     setError(null);
     setSaving(true);
     try {
-      const uploaded = await uploadPhoto.mutateAsync({
-        patientId,
-        type: "before_treatment",
-        file: await compressImageForUpload(photoFile),
-      });
       const base = {
         ...form,
         patientId,
         staffId,
-        procedure: form.procedure,
+        procedure,
         condition: form.condition,
         conditionOther: form.condition === "other" ? form.conditionOther?.trim() : undefined,
+        notes,
+        prescription,
         date: form.date!,
-        status: form.status ?? "completed",
-        beforeTreatmentFileId: uploaded.item.id,
+        status: form.status ?? "planned",
       };
-      // One treatment record per selected tooth, sequentially - each is an
-      // independent POST, so a failure partway through leaves the earlier
-      // teeth saved rather than losing the whole batch.
-      const teeth = hasInitialTeeth ? initialTeeth! : [form.toothNumber];
-      for (const tooth of teeth) {
-        await mutate.mutateAsync({ ...base, toothNumber: tooth as never });
+      // One treatment record per selected tooth, sequentially, each with its
+      // own before-treatment photo - a failure partway through leaves the
+      // earlier teeth saved (and their photos uploaded) rather than losing
+      // the whole batch.
+      for (const [index, tooth] of teeth.entries()) {
+        const label = teeth.length > 1 ? ` for tooth ${tooth} (${index + 1}/${teeth.length})` : "";
+        setProgress(`Uploading photo${label}…`);
+        const file = hasInitialTeeth ? photoFiles[tooth!]! : photoFile!;
+        const uploaded = await uploadPhoto.mutateAsync({
+          patientId,
+          type: "before_treatment",
+          file: await compressImageForUpload(file),
+        });
+        setProgress(`Saving${label}…`);
+        await mutate.mutateAsync({ ...base, toothNumber: tooth as never, beforeTreatmentFileId: uploaded.item.id });
       }
-      // A "planned" treatment needs a booked visit to actually happen, so go
-      // straight to scheduling one instead of just closing the form.
-      if (form.status === "planned") {
+      // A planned treatment with no appointment linked yet needs one booked
+      // to actually happen, so go straight to scheduling one instead of just
+      // closing the form. Already linked to one? It's already booked.
+      if (form.status === "planned" && !form.appointmentId) {
         navigate(`/appointments/new?patientId=${patientId}`);
         return;
       }
@@ -557,6 +610,7 @@ function TreatmentForm({
       setError(err instanceof ApiError ? err.message : "Could not save.");
     } finally {
       setSaving(false);
+      setProgress(null);
     }
   }
 
@@ -581,6 +635,19 @@ function TreatmentForm({
               onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
             />
           </div>
+        </div>
+        <div>
+          <Label htmlFor="appointment">Link to appointment (optional)</Label>
+          <Select id="appointment" value={form.appointmentId ?? ""} onChange={(e) => onAppointmentChange(e.target.value)}>
+            <option value="">No linked appointment</option>
+            {linkableAppointments.map((a) => (
+              <option key={a.id} value={a.id}>
+                {formatDateTime(a.startAt)}
+                {a.reasonNote ? ` · ${a.reasonNote}` : ""}
+              </option>
+            ))}
+          </Select>
+          {form.appointmentId && <p className="mt-1 text-xs text-slate-400">Date below is set from the linked appointment.</p>}
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -636,16 +703,16 @@ function TreatmentForm({
         <div>
           <Label htmlFor="status">Status</Label>
           <Select id="status" value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as never }))}>
-            <option value="completed">Completed</option>
             <option value="planned">Planned</option>
+            <option value="completed">Completed</option>
           </Select>
         </div>
         <div>
-          <Label htmlFor="notes">Notes (optional)</Label>
+          <Label htmlFor="notes">Notes</Label>
           <Textarea id="notes" rows={2} value={form.notes ?? ""} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
         </div>
         <div>
-          <Label htmlFor="prescription">Prescription (optional)</Label>
+          <Label htmlFor="prescription">Prescription</Label>
           <Textarea
             id="prescription"
             rows={2}
@@ -653,27 +720,43 @@ function TreatmentForm({
             onChange={(e) => setForm((f) => ({ ...f, prescription: e.target.value }))}
           />
         </div>
-        <div>
-          <Label htmlFor="beforePhoto">Before-treatment photo</Label>
-          <input
-            id="beforePhoto"
-            type="file"
-            accept=".jpg,.jpeg,.png,.webp,.heic"
-            onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)}
-          />
-          {photoFile && <p className="mt-1 text-xs text-slate-500">{photoFile.name}</p>}
-        </div>
+        {hasInitialTeeth ? (
+          <div>
+            <Label>Before-treatment photos</Label>
+            <div className="space-y-2">
+              {initialTeeth!.map((tooth) => (
+                <div key={tooth} className="flex items-center gap-2">
+                  <span className="w-20 shrink-0 text-sm font-medium text-slate-700">Tooth {tooth}</span>
+                  <input
+                    id={`beforePhoto-${tooth}`}
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.webp,.heic"
+                    onChange={(e) => setPhotoFiles((prev) => ({ ...prev, [tooth]: e.target.files?.[0] ?? null }))}
+                  />
+                  {photoFiles[tooth] && <span className="text-xs text-slate-500">{photoFiles[tooth]!.name}</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div>
+            <Label htmlFor="beforePhoto">Before-treatment photo</Label>
+            <input
+              id="beforePhoto"
+              type="file"
+              accept=".jpg,.jpeg,.png,.webp,.heic"
+              onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)}
+            />
+            {photoFile && <p className="mt-1 text-xs text-slate-500">{photoFile.name}</p>}
+          </div>
+        )}
         <FieldError>{error}</FieldError>
         <Button type="submit" disabled={saving}>
-          {uploadPhoto.isPending
-            ? "Uploading photo…"
-            : saving
-              ? initialTeeth && initialTeeth.length > 1
-                ? "Saving treatment notes…"
-                : "Saving…"
-              : initialTeeth && initialTeeth.length > 1
-                ? `Save treatment note for ${initialTeeth.length} teeth`
-                : "Save treatment note"}
+          {saving
+            ? (progress ?? "Saving…")
+            : hasInitialTeeth && initialTeeth!.length > 1
+              ? `Save treatment note for ${initialTeeth!.length} teeth`
+              : "Save treatment note"}
         </Button>
       </form>
     </Card>

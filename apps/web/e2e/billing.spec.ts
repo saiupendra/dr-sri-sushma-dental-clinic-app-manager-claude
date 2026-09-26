@@ -25,6 +25,11 @@ test("creates an invoice and records payments through to paid", async ({ page })
   await page.getByRole("button", { name: "+ Add treatment note" }).click();
   await page.fill("#procedure", "Scaling and polishing");
   await page.selectOption("#condition", "healthy");
+  await page.fill("#notes", "Routine scaling, no issues found.");
+  await page.fill("#prescription", "None required.");
+  // Invoicing needs a completed treatment (see the comment above), not the
+  // new default of planned.
+  await page.selectOption("#status", "completed");
   await page.setInputFiles("#beforePhoto", BEFORE_TREATMENT_PHOTO);
   await page.getByRole("button", { name: "Save treatment note" }).click();
   await expect(page.getByText("Scaling and polishing")).toBeVisible();
@@ -71,6 +76,9 @@ test("applies a combined percentage and cash discount when creating an invoice",
   await page.getByRole("button", { name: "+ Add treatment note" }).click();
   await page.fill("#procedure", "Root canal");
   await page.selectOption("#condition", "root_canal_treated");
+  await page.fill("#notes", "First sitting completed, no complications.");
+  await page.fill("#prescription", "Amoxicillin 500mg, 3x daily for 5 days.");
+  await page.selectOption("#status", "completed");
   await page.setInputFiles("#beforePhoto", BEFORE_TREATMENT_PHOTO);
   await page.getByRole("button", { name: "Save treatment note" }).click();
   await expect(page.getByText("Root canal", { exact: true })).toBeVisible();

@@ -42,9 +42,12 @@ const treatmentRecordInputShape = z.object({
   condition: z.enum(TOOTH_CONDITIONS),
   conditionOther: z.string().max(200).optional(),
   procedure: z.string().min(1).max(200),
-  notes: z.string().max(4000).optional(),
-  prescription: z.string().max(2000).optional(),
-  status: treatmentStatusSchema.default("completed"),
+  notes: z.string().min(1).max(4000),
+  prescription: z.string().min(1).max(2000),
+  // Most notes are entered ahead of the actual work (see the appointment
+  // link below), so "planned" is the more common case - "completed" is a
+  // deliberate choice, made when work happens same-visit.
+  status: treatmentStatusSchema.default("planned"),
   date: isoDateSchema,
   staffId: idSchema,
   // A before-treatment photo must already be uploaded (see the files route)

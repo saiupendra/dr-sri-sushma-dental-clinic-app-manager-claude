@@ -1,8 +1,12 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
+import type { AppointmentWithPatient } from "@clinic/shared";
 import { useAppointmentsList } from "../hooks/useAppointments.js";
 import { useAuth } from "../auth/useAuth.js";
 import { formatTime, toLocalDateString } from "../lib/dates.js";
 import { Badge, EmptyState } from "../components/ui.js";
+
+type TileFilter = "appointments" | "remaining" | "completed" | "changed";
 
 const STATUS_TONE: Record<string, "slate" | "green" | "amber" | "red" | "brand"> = {
   scheduled: "brand", confirmed: "green", completed: "slate", cancelled: "red", no_show: "amber",
@@ -22,12 +26,21 @@ export function DashboardPage() {
   const today = appointments ?? [];
   const active = today.filter((a) => a.status !== "cancelled" && a.status !== "no_show");
   const remaining = active.filter((a) => a.status !== "completed" && new Date(a.endAt).getTime() > now.getTime());
+  const completedList = today.filter((a) => a.status === "completed");
+  const changedList = today.filter((a) => a.status === "no_show" || a.status === "cancelled");
   const next = remaining[0];
-  const completed = today.filter((a) => a.status === "completed").length;
-  const changed = today.filter((a) => a.status === "no_show" || a.status === "cancelled").length;
   const dateLabel = new Intl.DateTimeFormat("en-IN", {
     weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Kolkata",
   }).format(now);
+
+  const [tileFilter, setTileFilter] = useState<TileFilter | null>(null);
+  const filterLists: Record<TileFilter, { list: AppointmentWithPatient[]; label: string }> = {
+    appointments: { list: active, label: "Appointments" },
+    remaining: { list: remaining, label: "Still to see" },
+    completed: { list: completedList, label: "Completed" },
+    changed: { list: changedList, label: "Changed plans" },
+  };
+  const visible = tileFilter ? filterLists[tileFilter].list : today;
 
   return (
     <div className="space-y-6">
@@ -44,20 +57,30 @@ export function DashboardPage() {
       </section>
 
       <section aria-label="Today's appointment summary" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {[
-          { label: "Appointments", value: active.length, hint: "On today's schedule", color: "text-blue-800", stripe: "bg-blue-600" },
-          { label: "Still to see", value: remaining.length, hint: "Upcoming or in progress", color: "text-indigo-800", stripe: "bg-indigo-600" },
-          { label: "Completed", value: completed, hint: "Visits finished today", color: "text-emerald-800", stripe: "bg-emerald-600" },
-          { label: "Changed plans", value: changed, hint: "Cancelled or no show", color: "text-amber-800", stripe: "bg-amber-500" },
-        ].map((metric) => (
-          <div key={metric.label} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        {(
+          [
+            { key: "appointments", label: "Appointments", value: active.length, hint: "On today's schedule", color: "text-blue-800", stripe: "bg-blue-600" },
+            { key: "remaining", label: "Still to see", value: remaining.length, hint: "Upcoming or in progress", color: "text-indigo-800", stripe: "bg-indigo-600" },
+            { key: "completed", label: "Completed", value: completedList.length, hint: "Visits finished today", color: "text-emerald-800", stripe: "bg-emerald-600" },
+            { key: "changed", label: "Changed plans", value: changedList.length, hint: "Cancelled or no show", color: "text-amber-800", stripe: "bg-amber-500" },
+          ] as const
+        ).map((metric) => (
+          <button
+            key={metric.key}
+            type="button"
+            aria-pressed={tileFilter === metric.key}
+            onClick={() => setTileFilter((prev) => (prev === metric.key ? null : metric.key))}
+            className={`overflow-hidden rounded-xl border bg-white text-left shadow-sm transition hover:border-blue-300 ${
+              tileFilter === metric.key ? "border-blue-500 ring-2 ring-blue-200" : "border-slate-200"
+            }`}
+          >
             <div className={`h-1 ${metric.stripe}`} />
             <div className="p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{metric.label}</p>
               <p className={`mt-2 text-3xl font-semibold ${metric.color}`}>{isLoading ? "…" : isError ? "—" : metric.value}</p>
               <p className="mt-1 text-xs text-slate-500">{metric.hint}</p>
             </div>
-          </div>
+          </button>
         ))}
       </section>
 
@@ -65,16 +88,32 @@ export function DashboardPage() {
         <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between gap-3 border-b border-slate-100 p-5">
             <div>
-              <h2 className="text-base font-semibold text-slate-900">Today's schedule</h2>
-              <p className="mt-1 text-xs text-slate-500">Appointments are shown in time order.</p>
+              <h2 className="text-base font-semibold text-slate-900">
+                {tileFilter ? `Today's schedule · ${filterLists[tileFilter].label}` : "Today's schedule"}
+              </h2>
+              <p className="mt-1 text-xs text-slate-500">
+                {tileFilter ? (
+                  <button type="button" onClick={() => setTileFilter(null)} className="font-medium text-blue-700 hover:underline">
+                    Clear filter · show all
+                  </button>
+                ) : (
+                  "Appointments are shown in time order. Tap a tile above to filter."
+                )}
+              </p>
             </div>
             <Link to="/appointments" className="shrink-0 text-sm font-medium text-blue-700 hover:underline">View calendar →</Link>
           </div>
           <div className="px-5 py-2">
             {isLoading && <p className="py-7 text-sm text-slate-500">Loading today's appointments…</p>}
             {isError && <p className="py-7 text-sm text-red-700">Could not load the schedule. Try again when connected.</p>}
-            {!isLoading && !isError && today.length === 0 && <div className="py-5"><EmptyState>No appointments scheduled for today.</EmptyState></div>}
-            {today.map((appt) => (
+            {!isLoading && !isError && visible.length === 0 && (
+              <div className="py-5">
+                <EmptyState>
+                  {tileFilter ? `No appointments match "${filterLists[tileFilter].label}" today.` : "No appointments scheduled for today."}
+                </EmptyState>
+              </div>
+            )}
+            {visible.map((appt) => (
               <Link key={appt.id} to={`/appointments/${appt.id}`}
                 className="flex items-center gap-3 border-b border-slate-100 py-4 last:border-0 hover:bg-blue-50/50">
                 <span className="w-20 shrink-0 text-xs font-semibold text-blue-800 sm:w-24 sm:text-sm">{formatTime(appt.startAt)}</span>
