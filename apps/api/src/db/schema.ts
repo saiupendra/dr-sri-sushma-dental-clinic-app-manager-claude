@@ -148,6 +148,12 @@ export const invoices = sqliteTable(
     notes: text("notes"),
     createdBy: text("created_by").references(() => staff.id),
     deletedAt: text("deleted_at"),
+    // Unguessable, set at creation (see POST /api/invoices) - lets a patient
+    // open their own invoice's PDF from a WhatsApp link with no login, since
+    // this app has no patient-facing auth at all. Nullable only because D1
+    // rejects a non-constant ALTER TABLE default; the migration backfills it
+    // for rows that predate this column.
+    shareToken: text("share_token"),
     ...timestamps,
   },
   (t) => ({

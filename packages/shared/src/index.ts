@@ -1,4 +1,5 @@
 export * from "./constants.js";
+export * from "./lib/whatsapp.js";
 export * from "./schemas/common.js";
 export * from "./schemas/staff.js";
 export * from "./schemas/auth.js";

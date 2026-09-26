@@ -64,6 +64,16 @@ export function useRecordPayment(invoiceId: string) {
   });
 }
 
+/** Staff-side download - forces a save, matching every other file-download link in this app. */
+export function invoicePdfUrl(id: string): string {
+  return `${import.meta.env.VITE_API_URL as string}/api/invoices/${id}/pdf`;
+}
+
+/** No-auth, patient-facing link (opens inline) - only works with the exact invoice.shareToken. */
+export function invoicePublicPdfUrl(id: string, shareToken: string): string {
+  return `${import.meta.env.VITE_API_URL as string}/api/public/invoices/${id}/${shareToken}/pdf`;
+}
+
 export function useDeletePayment(invoiceId: string) {
   const queryClient = useQueryClient();
   return useMutation({
