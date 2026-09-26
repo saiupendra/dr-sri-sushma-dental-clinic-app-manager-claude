@@ -1,0 +1,1 @@
+ALTER TABLE `invoice_items` ADD `units` integer DEFAULT 1 NOT NULL;
