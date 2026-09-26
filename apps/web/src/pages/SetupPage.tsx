@@ -7,7 +7,7 @@ import { useBootstrapStatus } from "../auth/useCurrentUser.js";
 import { ApiError } from "../api/client.js";
 import { Button, Card, FieldError, Input, Label } from "../components/ui.js";
 
-/** One-time first-run setup: creates the first doctor account. The API refuses this once any staff exists. */
+/** One-time first-run setup: creates the first administrator account. The API refuses this once any staff exists. */
 export function SetupPage() {
   const { user, bootstrap } = useAuth();
   const { data: bootstrapStatus, isPending: isCheckingSetup, refetch: retrySetup } = useBootstrapStatus();
@@ -61,7 +61,7 @@ export function SetupPage() {
         <div className="mb-6 text-center">
           <h1 className="text-lg font-semibold text-slate-900">Welcome — let's set up your account</h1>
           <p className="mt-1 text-sm text-slate-500">
-            This creates the first doctor account for the clinic. You can add front-desk accounts afterwards.
+            This creates the first administrator account for the clinic. You can add doctor and front-desk accounts afterwards.
           </p>
         </div>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
@@ -82,7 +82,7 @@ export function SetupPage() {
           </div>
           <FieldError>{errors.root?.message}</FieldError>
           <Button type="submit" disabled={isSubmitting} className="w-full">
-            {isSubmitting ? "Setting up…" : "Create doctor account"}
+            {isSubmitting ? "Setting up…" : "Create administrator account"}
           </Button>
         </form>
       </Card>
