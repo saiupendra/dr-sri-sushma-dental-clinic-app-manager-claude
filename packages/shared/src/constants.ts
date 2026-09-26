@@ -1,8 +1,13 @@
-/** Used only to build reminder message text; all other clinic facts (address, hours) live outside this app. */
+/** Used to build reminder message text and the invoice PDF letterhead. */
 export const CLINIC_NAME = "Dr.Sri Sushma Multispeciality Dental Clinic";
 
-/** GSTIN printed on generated invoice PDFs. */
+/** Letterhead facts printed on generated invoice PDFs. */
 export const CLINIC_GSTIN = "36APBPY6938F1ZF";
+export const CLINIC_ADDRESS = "Sanjay Apartment, beside Canara Bank, Anandbagh, Moula Ali, Hyderabad, Telangana 500047";
+export const CLINIC_PHONE = "+91 79958 15454";
+export const CLINIC_EMAIL = "info@drsrisushmadentalclinic.com";
+export const CLINIC_WEBSITE = "www.drsrisushmadentalclinic.com";
+export const CLINIC_HOURS = "9:00 AM - 9:00 PM, Monday to Sunday";
 
 /**
  * Staff roles. Admin is the system/operations role (staff accounts,

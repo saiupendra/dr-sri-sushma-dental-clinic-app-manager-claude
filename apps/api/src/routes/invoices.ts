@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   createInvoiceSchema,
   idParamSchema,
@@ -83,9 +83,23 @@ export async function loadInvoicePdfBytes(db: Db, id: string, requireShareToken?
   if (requireShareToken !== undefined && row.shareToken !== requireShareToken) return null;
 
   const items = await db
-    .select({ description: invoiceItems.description, amount: invoiceItems.amount })
+    .select({ description: invoiceItems.description, amount: invoiceItems.amount, treatmentRecordId: invoiceItems.treatmentRecordId })
     .from(invoiceItems)
     .where(eq(invoiceItems.invoiceId, id));
+
+  // Only line items billed for actual treatment carry a treatmentRecordId
+  // (a plain consultation-fee line doesn't) - treatmentRecords.staffId is
+  // always a doctor account, since only "doctor" can write one (RBAC).
+  const treatmentRecordIds = [...new Set(items.map((item) => item.treatmentRecordId).filter((v): v is string => v !== null))];
+  let treatedByNames: string[] = [];
+  if (treatmentRecordIds.length > 0) {
+    const doctorRows = await db
+      .select({ name: staff.name })
+      .from(treatmentRecords)
+      .innerJoin(staff, eq(treatmentRecords.staffId, staff.id))
+      .where(inArray(treatmentRecords.id, treatmentRecordIds));
+    treatedByNames = [...new Set(doctorRows.map((r) => r.name))];
+  }
 
   return generateInvoicePdf({
     invoiceId: row.invoiceId,
@@ -97,6 +111,7 @@ export async function loadInvoicePdfBytes(db: Db, id: string, requireShareToken?
     totalAmount: row.totalAmount,
     amountPaid: row.amountPaid,
     generatedByName: row.generatedByName,
+    treatedByNames,
   });
 }
 

@@ -28,7 +28,14 @@ function extractPdfText(bytes: Uint8Array): string {
   let inflated = "";
   for (const [, body] of raw.matchAll(/stream\r?\n([\s\S]*?)endstream/g)) {
     try {
-      inflated += inflateSync(Buffer.from(body, "latin1")).toString("latin1");
+      // Buffer.from(...) here, not a bare inflateSync(...).toString(encoding):
+      // apps/api's tsconfig only brings in @cloudflare/workers-types (no
+      // @types/node), under which inflateSync()'s declared return type has a
+      // 0-arg toString() - wrapping it back through Buffer.from(...) gets a
+      // type whose toString(encoding) actually type-checks, for a value that
+      // is a real Node Buffer at runtime either way (plain-Node vitest, see
+      // vitest.config.ts).
+      inflated += Buffer.from(inflateSync(Buffer.from(body, "latin1"))).toString("latin1");
     } catch {
       // Not a Flate-encoded stream (e.g. raw image data) - nothing to read here.
     }
