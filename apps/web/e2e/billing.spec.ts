@@ -30,21 +30,20 @@ test("creates an invoice and records payments through to paid", async ({ page })
   await expect(page.getByText("Scaling and polishing")).toBeVisible();
 
   await page.goto(`/billing/new?patientId=${patientId}`);
-  const lineInputs = page.locator('input[placeholder^="Description"]');
-  await lineInputs.first().fill("Scaling and polishing");
-  await page.locator('input[placeholder="Amount"]').first().fill("1200");
+  // Consultation fee (500, set on the patient above) is a fixed line the
+  // server always adds - not something this form lets you type or remove.
   await page.getByRole("button", { name: "+ Add line" }).click();
-  await lineInputs.nth(1).fill("Consultation");
-  await page.locator('input[placeholder="Amount"]').nth(1).fill("300");
-  await expect(page.getByText("₹1500.00")).toBeVisible();
+  await page.locator('input[placeholder^="Description"]').fill("Scaling and polishing");
+  await page.locator('input[placeholder="Amount"]').fill("1200");
+  await expect(page.getByText("₹1700.00")).toBeVisible();
 
   await page.getByRole("button", { name: "Create invoice" }).click();
   await expect(page).toHaveURL(/\/billing\/[a-f0-9-]+$/);
-  await expect(page.getByRole("heading", { level: 1, name: /₹1500\.00/ })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: /₹1700\.00/ })).toBeVisible();
   await expect(page.getByText("unpaid", { exact: true })).toBeVisible();
 
-  await page.fill("#amount", "1500");
+  await page.fill("#amount", "1700");
   await page.getByRole("button", { name: "Record" }).click();
   await expect(page.getByText("paid", { exact: true })).toBeVisible();
-  await expect(page.getByText("₹1500.00 via cash")).toBeVisible();
+  await expect(page.getByText("₹1700.00 via cash")).toBeVisible();
 });

@@ -69,7 +69,10 @@ export const createInvoiceSchema = z.object({
   id: idSchema.optional(),
   patientId: idSchema,
   notes: z.string().max(2000).optional(),
-  items: z.array(createInvoiceItemSchema).min(1),
+  // No .min(1): the server always prepends a "Consultation fee" line from
+  // the patient's own record (see POST /api/invoices), so an invoice with
+  // no *additional* charges is still a valid, non-empty invoice.
+  items: z.array(createInvoiceItemSchema),
 });
 export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
 
@@ -81,6 +84,8 @@ export type InvoiceListQuery = z.infer<typeof invoiceListQuerySchema>;
 export const updateInvoiceSchema = z.object({
   status: z.enum(INVOICE_STATUSES).optional(),
   notes: z.string().max(2000).nullable().optional(),
-  items: z.array(createInvoiceItemSchema).min(1).optional(),
+  // See createInvoiceSchema.items - same "server always adds the
+  // consultation fee back in" rule applies when items are replaced here.
+  items: z.array(createInvoiceItemSchema).optional(),
 });
 export type UpdateInvoiceInput = z.infer<typeof updateInvoiceSchema>;
