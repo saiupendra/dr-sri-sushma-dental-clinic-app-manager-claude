@@ -24,6 +24,13 @@ const AMBER = rgb(0.75, 0.5, 0.05);
 export interface InvoicePdfItem {
   description: string;
   amount: number;
+  units?: number;
+}
+
+export interface InvoicePdfPayment {
+  amount: number;
+  method: string;
+  note?: string | null;
 }
 
 export interface InvoicePdfInput {
@@ -35,6 +42,8 @@ export interface InvoicePdfInput {
   items: InvoicePdfItem[];
   totalAmount: number;
   amountPaid: number;
+  payments?: InvoicePdfPayment[];
+  instructions?: string | null;
   /** Name of the staff account that created the invoice; omitted (legacy rows, or a deleted account) leaves the footer credit off. */
   generatedByName?: string | null;
   /** Doctor(s) who performed the billed treatment(s), resolved from the line items' linked treatment records. Empty when no item is tied to one (e.g. a standalone consultation fee). */
@@ -49,6 +58,35 @@ export interface InvoicePdfInput {
  */
 function formatMoney(amount: number): string {
   return `Rs. ${amount.toFixed(2)}`;
+}
+
+function formatCellAmount(amount: number): string {
+  return amount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+const SMALL_NUMBERS = ["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
+const TENS = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+
+function numberWords(value: number): string {
+  if (value < 20) return SMALL_NUMBERS[value]!;
+  if (value < 100) return `${TENS[Math.floor(value / 10)]}${value % 10 ? ` ${numberWords(value % 10)}` : ""}`;
+  if (value < 1000) return `${numberWords(Math.floor(value / 100))} Hundred${value % 100 ? ` ${numberWords(value % 100)}` : ""}`;
+  for (const [size, label] of [[10000000, "Crore"], [100000, "Lakh"], [1000, "Thousand"]] as const) {
+    if (value >= size) return `${numberWords(Math.floor(value / size))} ${label}${value % size ? ` ${numberWords(value % size)}` : ""}`;
+  }
+  return "Zero";
+}
+
+export function amountInWords(amount: number): string {
+  const paise = Math.round(amount * 100);
+  const rupees = Math.floor(paise / 100);
+  const fraction = paise % 100;
+  return `${numberWords(rupees)} Indian Rupees${fraction ? ` and ${numberWords(fraction)} Paise` : ""} Only`;
+}
+
+function paymentLabel(method: string, note?: string | null): string {
+  const labels: Record<string, string> = { cash: "Cash", card: "Card", upi: "UPI", amazon_pay: "Amazon Pay", netbanking: "Net banking" };
+  return labels[method] ?? (method === "other" && note ? note : "Other");
 }
 
 function shortInvoiceNumber(invoiceId: string): string {
@@ -75,10 +113,10 @@ function statusLabel(status: string): { text: string; color: ReturnType<typeof r
  */
 const HEADER_TOP_ZONE_BOTTOM = 44;
 const ADDRESS_Y = 62;
-const CONTACT_Y = 76;
-const WEBSITE_Y = 90;
-const GSTIN_Y = 104;
-const DIVIDER_Y = 122;
+const CONTACT_Y = 94;
+const WEBSITE_Y = 108;
+const GSTIN_Y = 122;
+const DIVIDER_Y = 140;
 
 /** Renders the fixed page furniture (logo, letterhead, footer) that every page of a multi-page invoice repeats. */
 function drawPageChrome(
@@ -91,14 +129,14 @@ function drawPageChrome(
   const top = PAGE_HEIGHT - MARGIN;
   const textX = MARGIN + LOGO_SIZE + 14;
   page.drawImage(logo, { x: MARGIN, y: top - LOGO_SIZE + 8, width: LOGO_SIZE, height: LOGO_SIZE });
-  // Kept at the original 13pt (not enlarged along with the logo): at 15pt this
-  // string's real pdf-lib-measured width runs into the invoice number's
-  // right-aligned column above the fold; 13pt leaves a clear ~30pt gap.
-  page.drawText(CLINIC_NAME, { x: textX, y: top - 8, size: 13, font: fontBold, color: DARK });
-  page.drawText("Unleash Confident Smiles", { x: textX, y: top - 24, size: 9, font, color: GRAY });
+  // The standard Courier font renders consistently in browser/PDF viewers;
+  // keep the clinic name compact enough to clear the invoice number.
+  page.drawText(CLINIC_NAME, { x: textX, y: top - 8, size: 10.5, font: fontBold, color: DARK });
 
   // Full-width from here down - see HEADER_TOP_ZONE_BOTTOM above.
-  page.drawText(CLINIC_ADDRESS, { x: textX, y: top - ADDRESS_Y, size: 8.5, font, color: GRAY, maxWidth: PAGE_WIDTH - MARGIN - textX });
+  const [addressFirst, addressSecond] = CLINIC_ADDRESS.split(", Hyderabad, ");
+  page.drawText(addressFirst!, { x: textX, y: top - ADDRESS_Y, size: 8.5, font, color: GRAY });
+  page.drawText(`Hyderabad, ${addressSecond}`, { x: textX, y: top - ADDRESS_Y - 14, size: 8.5, font, color: GRAY });
   page.drawText(`Phone: ${CLINIC_PHONE}   |   Email: ${CLINIC_EMAIL}`, { x: textX, y: top - CONTACT_Y, size: 8.5, font, color: GRAY });
   page.drawText(`${CLINIC_WEBSITE}   |   Timings: ${CLINIC_HOURS}`, { x: textX, y: top - WEBSITE_Y, size: 8.5, font, color: GRAY });
   page.drawText(`GSTIN: ${CLINIC_GSTIN}`, { x: textX, y: top - GSTIN_Y, size: 8.5, font, color: GRAY });
@@ -130,8 +168,8 @@ function drawPageChrome(
 
 export async function generateInvoicePdf(input: InvoicePdfInput): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create();
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const font = await pdfDoc.embedFont(StandardFonts.Courier);
+  const fontBold = await pdfDoc.embedFont(StandardFonts.CourierBold);
   const logoBytes = Uint8Array.from(atob(CLINIC_LOGO_PNG_BASE64), (c) => c.charCodeAt(0));
   const logo = await pdfDoc.embedPng(logoBytes);
 
@@ -141,8 +179,8 @@ export async function generateInvoicePdf(input: InvoicePdfInput): Promise<Uint8A
   const rightColX = PAGE_WIDTH - MARGIN;
   const top = PAGE_HEIGHT - MARGIN;
   const invoiceNo = shortInvoiceNumber(input.invoiceId);
-  const invoiceNoWidth = fontBold.widthOfTextAtSize(invoiceNo, 18);
-  page.drawText(invoiceNo, { x: rightColX - invoiceNoWidth, y: top - 10, size: 18, font: fontBold, color: BRAND_BLUE });
+  const invoiceNoWidth = fontBold.widthOfTextAtSize(invoiceNo, 15);
+  page.drawText(invoiceNo, { x: rightColX - invoiceNoWidth, y: top - 10, size: 15, font: fontBold, color: BRAND_BLUE });
   const dateText = formatDate(input.date);
   const dateWidth = font.widthOfTextAtSize(dateText, 10);
   page.drawText(dateText, { x: rightColX - dateWidth, y: top - 26, size: 10, font, color: GRAY });
@@ -169,51 +207,163 @@ export async function generateInvoicePdf(input: InvoicePdfInput): Promise<Uint8A
   page.drawText(input.patientPhone, { x: MARGIN, y, size: 10, font, color: GRAY });
   y -= 30;
 
-  const descColX = MARGIN;
-  const amountColX = rightColX;
-  page.drawRectangle({ x: MARGIN, y: y - 6, width: rightColX - MARGIN, height: 22, color: rgb(0.95, 0.96, 0.98) });
-  page.drawText("DESCRIPTION", { x: descColX + 8, y: y, size: 8.5, font: fontBold, color: GRAY });
-  const amountHeaderWidth = fontBold.widthOfTextAtSize("AMOUNT", 8.5);
-  page.drawText("AMOUNT", { x: amountColX - amountHeaderWidth - 8, y: y, size: 8.5, font: fontBold, color: GRAY });
-  y -= 28;
-
-  const bottomLimit = MARGIN + 40;
-  for (const item of input.items) {
-    if (y < bottomLimit) {
-      page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
-      drawPageChrome(page, logo, fontBold, font, input.generatedByName);
-      y = top - (DIVIDER_Y + 20);
-    }
-    page.drawText(item.description, { x: descColX + 8, y, size: 10.5, font, color: DARK, maxWidth: 340 });
-    const amountText = formatMoney(item.amount);
-    const amountWidth = font.widthOfTextAtSize(amountText, 10.5);
-    page.drawText(amountText, { x: amountColX - amountWidth - 8, y, size: 10.5, font, color: DARK });
-    y -= 12;
-    page.drawLine({ start: { x: MARGIN, y }, end: { x: rightColX, y }, thickness: 0.5, color: LIGHT_LINE });
-    y -= 18;
-  }
-
-  if (y < bottomLimit + 70) {
+  // A4 has much less horizontal room than the photographed register, so use
+  // compact type and a two-line heading for the seven requested columns.
+  const columns = [MARGIN, 77, 155, 300, 356, 391, 466, rightColX];
+  const tableBottom = MARGIN + 52;
+  const drawRule = (atY: number) => {
+    page.drawLine({ start: { x: MARGIN, y: atY }, end: { x: rightColX, y: atY }, thickness: 0.55, color: LIGHT_LINE });
+  };
+  const rightText = (value: string, column: number, atY: number, strong = false) => {
+    const face = strong ? fontBold : font;
+    const size = 8;
+    page.drawText(value, {
+      x: columns[column + 1]! - face.widthOfTextAtSize(value, size) - 5,
+      y: atY,
+      size,
+      font: face,
+      color: DARK,
+    });
+  };
+  const drawHeader = () => {
+    page.drawRectangle({ x: MARGIN, y: y - 32, width: rightColX - MARGIN, height: 36, color: rgb(0.93, 0.96, 0.99) });
+    drawRule(y + 4);
+    drawRule(y - 32);
+    const headings: string[][] = [["S.No"], ["Procedure", "Type"], ["Particulars"], ["Cost"], ["Units"], ["Net Amt"], ["Gross", "Amt"]];
+    headings.forEach((lines, index) => {
+      lines.forEach((line, lineIndex) => page.drawText(line, {
+        x: columns[index]! + 4,
+        y: y - 10 - lineIndex * 10,
+        size: 8,
+        font: fontBold,
+        color: DARK,
+      }));
+    });
+    columns.slice(1, -1).forEach((x) => page.drawLine({
+      start: { x, y: y + 4 }, end: { x, y: y - 32 }, thickness: 0.5, color: LIGHT_LINE,
+    }));
+    y -= 32;
+  };
+  const newTablePage = () => {
     page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
     drawPageChrome(page, logo, fontBold, font, input.generatedByName);
-    y = top - (DIVIDER_Y + 20);
+    page.drawLine({ start: { x: MARGIN, y: top - DIVIDER_Y }, end: { x: rightColX, y: top - DIVIDER_Y }, thickness: 1, color: LIGHT_LINE });
+    page.drawText(`${invoiceNo} - continued`, { x: MARGIN, y: top - DIVIDER_Y - 20, size: 10, font: fontBold, color: BRAND_BLUE });
+    y = top - DIVIDER_Y - 45;
+    drawHeader();
+  };
+  const wrapText = (value: string, width: number, size: number): string[] => {
+    const lines: string[] = [];
+    let line = "";
+    for (const word of value.split(/\s+/)) {
+      const candidate = line ? `${line} ${word}` : word;
+      if (font.widthOfTextAtSize(candidate, size) <= width) {
+        line = candidate;
+      } else {
+        if (line) lines.push(line);
+        line = "";
+        for (const character of word) {
+          if (font.widthOfTextAtSize(line + character, size) > width && line) {
+            lines.push(line);
+            line = "";
+          }
+          line += character;
+        }
+      }
+    }
+    if (line) lines.push(line);
+    return lines.length ? lines : [""];
+  };
+  drawHeader();
+
+  for (const [index, item] of input.items.entries()) {
+    const particularsLines = wrapText(item.description, columns[3]! - columns[2]! - 8, 8);
+    const rowHeight = Math.max(27, particularsLines.length * 11 + 12);
+    if (y - rowHeight < tableBottom) newTablePage();
+    const units = Math.max(1, item.units ?? 1);
+    const procedureType = item.description.toLowerCase() === "consultation fee" ? "CONSULTATION" : "PROCEDURE";
+    const baseline = y - 17;
+    page.drawText(String(index + 1), { x: columns[0]! + 5, y: baseline, size: 8, font, color: DARK });
+    page.drawText(procedureType, { x: columns[1]! + 4, y: baseline, size: 7.3, font, color: DARK });
+    particularsLines.forEach((line, lineIndex) => page.drawText(line, {
+      x: columns[2]! + 4, y: baseline - lineIndex * 11, size: 8, font, color: DARK,
+    }));
+    rightText(formatCellAmount(item.amount / units), 3, baseline);
+    rightText(String(units), 4, baseline);
+    // No tax or discount is configured in this app. Both amounts therefore
+    // represent the same actual line total, without implying a tax charge.
+    rightText(formatCellAmount(item.amount), 5, baseline);
+    rightText(formatCellAmount(item.amount), 6, baseline);
+    drawRule(y - rowHeight);
+    columns.slice(1, -1).forEach((x) => page.drawLine({
+      start: { x, y }, end: { x, y: y - rowHeight }, thickness: 0.5, color: LIGHT_LINE,
+    }));
+    y -= rowHeight;
   }
 
-  y -= 10;
+  const beginSummaryPage = () => {
+    page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+    drawPageChrome(page, logo, fontBold, font, input.generatedByName);
+    page.drawLine({ start: { x: MARGIN, y: top - DIVIDER_Y }, end: { x: rightColX, y: top - DIVIDER_Y }, thickness: 1, color: LIGHT_LINE });
+    page.drawText(`${invoiceNo} - continued`, { x: MARGIN, y: top - DIVIDER_Y - 20, size: 10, font: fontBold, color: BRAND_BLUE });
+    y = top - DIVIDER_Y - 45;
+  };
+  const ensureRoom = (height: number) => {
+    if (y - height < tableBottom) beginSummaryPage();
+  };
+  ensureRoom(88);
+  y -= 20;
   const balanceDue = Math.max(0, input.totalAmount - input.amountPaid);
-  const totalsRow = (label: string, amount: number, opts?: { bold?: boolean; color?: ReturnType<typeof rgb> }) => {
-    const labelFont = opts?.bold ? fontBold : font;
-    const color = opts?.color ?? DARK;
-    const amountText = formatMoney(amount);
-    const amountWidth = labelFont.widthOfTextAtSize(amountText, 11);
-    page.drawText(label, { x: rightColX - 180, y, size: 11, font: labelFont, color });
-    page.drawText(amountText, { x: rightColX - amountWidth, y, size: 11, font: labelFont, color });
+  const summaryRow = (label: string, amount: number, strong = false) => {
+    page.drawText(label, { x: columns[4]!, y, size: 9, font: strong ? fontBold : font, color: DARK });
+    const value = formatMoney(amount);
+    page.drawText(value, { x: rightColX - fontBold.widthOfTextAtSize(value, 9) - 4, y, size: 9, font: strong ? fontBold : font, color: DARK });
     y -= 18;
   };
-  totalsRow("Total", input.totalAmount);
-  totalsRow("Paid", input.amountPaid);
-  page.drawLine({ start: { x: rightColX - 180, y: y + 6 }, end: { x: rightColX, y: y + 6 }, thickness: 0.75, color: LIGHT_LINE });
-  totalsRow("Balance due", balanceDue, { bold: true, color: balanceDue > 0 ? AMBER : GREEN });
+  summaryRow("Total Gross Amt", input.totalAmount, true);
+  summaryRow("Received", input.amountPaid);
+  summaryRow("Balance due", balanceDue, true);
+  drawRule(y + 6);
+  y -= 11;
+
+  const paymentLines = input.payments?.length
+    ? input.payments.map((payment) => `By ${paymentLabel(payment.method, payment.note)}: ${formatCellAmount(payment.amount)}`)
+    : ["No payment recorded"];
+  ensureRoom(28);
+  page.drawText("Payment Details:", { x: MARGIN + 5, y, size: 9, font: fontBold, color: DARK });
+  y -= 15;
+  for (const line of paymentLines) {
+    for (const part of wrapText(line, rightColX - MARGIN - 20, 8.5)) {
+      ensureRoom(18);
+      page.drawText(part, { x: MARGIN + 10, y, size: 8.5, font, color: DARK });
+      y -= 15;
+    }
+  }
+  y -= 5;
+  ensureRoom(33);
+  page.drawText("Amount (in words):", { x: MARGIN + 5, y, size: 9, font: fontBold, color: DARK });
+  y -= 15;
+  for (const line of wrapText(amountInWords(input.totalAmount), rightColX - MARGIN - 20, 8.5)) {
+    ensureRoom(18);
+    page.drawText(line, { x: MARGIN + 10, y, size: 8.5, font, color: DARK });
+    y -= 15;
+  }
+  y -= 8;
+  ensureRoom(22);
+  page.drawText("Instructions:", { x: MARGIN + 5, y, size: 9, font: fontBold, color: DARK });
+  y -= 15;
+  const instructions = input.instructions?.trim() || "None";
+  for (const paragraph of instructions.split(/\n/)) {
+    for (const line of wrapText(paragraph, rightColX - MARGIN - 20, 8.5)) {
+      if (y - 16 < tableBottom) {
+        beginSummaryPage();
+        page.drawText("Instructions (continued):", { x: MARGIN + 5, y, size: 9, font: fontBold, color: DARK });
+        y -= 20;
+      }
+      page.drawText(line, { x: MARGIN + 10, y, size: 8.5, font, color: DARK });
+      y -= 14;
+    }
+  }
 
   return pdfDoc.save();
 }
