@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import type { CreateInvoiceItemInput } from "@clinic/shared";
 import { useCreateInvoice } from "../../hooks/useInvoices.js";
 import { PatientPicker, type PickedPatient } from "../../components/PatientPicker.js";
@@ -42,7 +42,7 @@ export function InvoiceFormPage() {
       return;
     }
     if (blockedByNoCompletedTreatment) {
-      setError("This patient has no completed treatment yet. Add or complete a treatment note before creating an invoice.");
+      setError("This patient has no completed treatment yet. A completed appointment alone isn't enough — add or complete a treatment note first.");
       return;
     }
     const cleanItems = items.filter((item) => item.description.trim() && Number.isFinite(item.amount) && item.amount >= 0);
@@ -74,8 +74,12 @@ export function InvoiceFormPage() {
           {effectivePatient && treatmentsLoading && <p className="text-sm text-slate-400">Checking treatment history…</p>}
           {blockedByNoCompletedTreatment && (
             <EmptyState>
-              This patient has no completed treatment yet. Add or complete a treatment note before creating an
-              invoice.
+              This patient has no completed treatment yet — a completed appointment on its own doesn&apos;t
+              generate a fee. Add a treatment note for the visit, or mark an existing one completed, then come
+              back here.{" "}
+              <Link to={`/patients/${effectivePatient.id}?tab=treatments`} className="font-medium text-brand-700 hover:underline">
+                Go to treatment notes →
+              </Link>
             </EmptyState>
           )}
           <div className={blockedByNoCompletedTreatment ? "pointer-events-none opacity-50" : undefined}>
