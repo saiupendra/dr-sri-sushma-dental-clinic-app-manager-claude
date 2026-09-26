@@ -11,6 +11,9 @@ export const appointmentSchema = z
     endAt: isoDateTimeSchema,
     status: z.enum(APPOINTMENT_STATUSES),
     reasonNote: z.string().max(1000).nullable(),
+    // Set when this appointment was rescheduled/no-showed/cancelled and a
+    // follow-up was booked from that popup - points at the new appointment.
+    rescheduledToAppointmentId: idSchema.nullable(),
     createdBy: idSchema.nullable(),
   })
   .merge(timestampsSchema);
@@ -29,6 +32,12 @@ export const createAppointmentSchema = z
   .refine((v) => new Date(v.endAt).getTime() > new Date(v.startAt).getTime(), {
     message: "endAt must be after startAt",
     path: ["endAt"],
+  })
+  // A minute of slack for the time between the user picking a slot and the
+  // request actually landing - not a loophole for booking into yesterday.
+  .refine((v) => new Date(v.startAt).getTime() > Date.now() - 60_000, {
+    message: "Cannot book an appointment in the past",
+    path: ["startAt"],
   });
 export type CreateAppointmentInput = z.infer<typeof createAppointmentSchema>;
 
@@ -39,6 +48,7 @@ export const updateAppointmentSchema = z.object({
   endAt: isoDateTimeSchema.optional(),
   status: z.enum(APPOINTMENT_STATUSES).optional(),
   reasonNote: z.string().max(1000).nullable().optional(),
+  rescheduledToAppointmentId: idSchema.optional(),
 });
 export type UpdateAppointmentInput = z.infer<typeof updateAppointmentSchema>;
 

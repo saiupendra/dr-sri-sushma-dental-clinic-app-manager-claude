@@ -1,9 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
+  CompleteTreatmentRecordInput,
   CreateTreatmentRecordInput,
   TreatmentRecord,
   UpdateTreatmentRecordInput,
-  UpdateTreatmentStatusInput,
 } from "@clinic/shared";
 import { api } from "../api/client.js";
 import { useOfflineMutation } from "../offline/useOfflineMutation.js";
@@ -39,10 +39,13 @@ export function useCreateTreatmentRecord(patientId: string) {
         procedure: vars.procedure,
         notes: vars.notes ?? null,
         prescription: vars.prescription ?? null,
-        status: vars.status ?? "completed",
-        date: vars.date,
+        status: "planned",
+        date: now.slice(0, 10),
+        completedDate: null,
+        postTreatmentNotes: null,
         staffId: vars.staffId,
-        beforeTreatmentFileId: vars.beforeTreatmentFileId,
+        beforeTreatmentFileIds: vars.beforeTreatmentFileIds,
+        afterTreatmentFileIds: [],
         createdAt: now,
         updatedAt: now,
       };
@@ -83,17 +86,19 @@ export function useDeleteTreatmentRecord(patientId: string, id: string) {
   });
 }
 
-// The one edit a doctor can still make to a saved record - see
-// requireRole("admin", "doctor") on PATCH /api/treatments/:id/status.
-export function useUpdateTreatmentStatus(patientId: string, id: string) {
-  return useOfflineMutation<UpdateTreatmentStatusInput, { item: TreatmentRecord }>({
-    method: "PATCH",
-    path: () => `/api/treatments/${id}/status`,
-    body: (vars) => vars,
-    entityLabel: () => "Update treatment status",
-    invalidateKeys: () => [
-      ["treatments", "list", patientId],
-      ["patients", "tooth-chart", patientId],
-    ],
+// The one-way move from planned to completed - requires post-operative
+// photos, post-operative notes and the treatment-done date (see
+// requireRole("admin", "doctor") on PATCH /api/treatments/:id/complete).
+// This needs a live connection (it follows photo uploads, which do too), so
+// it's a plain mutation rather than routed through the offline outbox.
+export function useCompleteTreatmentRecord(patientId: string, id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CompleteTreatmentRecordInput) =>
+      api.patch<{ item: TreatmentRecord }>(`/api/treatments/${id}/complete`, input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["treatments", "list", patientId] });
+      void queryClient.invalidateQueries({ queryKey: ["patients", "tooth-chart", patientId] });
+    },
   });
 }

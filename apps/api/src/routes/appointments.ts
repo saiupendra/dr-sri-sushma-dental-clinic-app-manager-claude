@@ -8,7 +8,7 @@ import {
 } from "@clinic/shared";
 import { getDb, type Db } from "../db/client.js";
 import { appointments, patients, reminders, staff } from "../db/schema.js";
-import { conflict, notFound } from "../lib/responses.js";
+import { badRequest, conflict, notFound } from "../lib/responses.js";
 import { rangesOverlap } from "../lib/scheduling.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { validate } from "../lib/validate.js";
@@ -19,8 +19,8 @@ import type { AppContext } from "../types.js";
 export const appointmentRoutes = new Hono<AppContext>();
 appointmentRoutes.use("*", requireAuth);
 
-// Cancelled/no-show slots free up the calendar, so they never block a new booking.
-const STATUSES_EXCLUDED_FROM_CONFLICT_CHECK = ["cancelled", "no_show"];
+// Cancelled/no-show/rescheduled slots free up the calendar, so they never block a new booking.
+const STATUSES_EXCLUDED_FROM_CONFLICT_CHECK = ["cancelled", "no_show", "rescheduled"];
 
 function toAppointment(row: typeof appointments.$inferSelect) {
   return {
@@ -31,10 +31,24 @@ function toAppointment(row: typeof appointments.$inferSelect) {
     endAt: row.endAt,
     status: row.status,
     reasonNote: row.reasonNote,
+    rescheduledToAppointmentId: row.rescheduledToAppointmentId,
     createdBy: row.createdBy,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+/**
+ * The clinician a patient is booked with must actually be a doctor - a
+ * front-desk account can create/edit the appointment itself, but was never
+ * meant to be the one it's booked "with". See docs/architecture.md's RBAC
+ * table and constants.ts's ROLES comment.
+ */
+async function assertStaffIsDoctor(db: Db, staffId: string): Promise<void> {
+  const [row] = await db.select({ role: staff.role }).from(staff).where(eq(staff.id, staffId)).limit(1);
+  if (!row || row.role !== "doctor") {
+    throw badRequest("An appointment can only be booked with a doctor");
+  }
 }
 
 /** Adds read-only patient/staff names so the UI never has to look them up per row. */
@@ -176,6 +190,8 @@ appointmentRoutes.post("/", validate("json", createAppointmentSchema), async (c)
   const db = getDb(c.env);
   const user = c.get("currentUser");
 
+  await assertStaffIsDoctor(db, input.staffId);
+
   const startAt = new Date(input.startAt).toISOString();
   const endAt = new Date(input.endAt).toISOString();
 
@@ -223,6 +239,8 @@ appointmentRoutes.patch(
       .where(and(eq(appointments.id, id), isNull(appointments.deletedAt)))
       .limit(1);
     if (!existing) throw notFound("Appointment");
+
+    if (input.staffId) await assertStaffIsDoctor(db, input.staffId);
 
     const staffId = input.staffId ?? existing.staffId;
     const startAt = input.startAt ? new Date(input.startAt).toISOString() : existing.startAt;

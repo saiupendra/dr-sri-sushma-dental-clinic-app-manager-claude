@@ -24,6 +24,7 @@ const STATUS_TONE: Record<string, "slate" | "green" | "amber" | "red" | "brand">
   completed: "slate",
   cancelled: "red",
   no_show: "amber",
+  rescheduled: "amber",
 };
 
 function addDays(dateInputValue: string, delta: number): string {

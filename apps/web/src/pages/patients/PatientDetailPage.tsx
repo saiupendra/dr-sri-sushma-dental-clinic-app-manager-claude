@@ -1,29 +1,31 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { TOOTH_CONDITIONS, type CreateTreatmentRecordInput, type TreatmentRecord } from "@clinic/shared";
-import { usePatient, usePatientToothChart } from "../../hooks/usePatients.js";
+import { FILE_TYPES, TOOTH_CONDITIONS, type FileType, type TreatmentRecord } from "@clinic/shared";
+import { useDeletePatient, usePatient, usePatientToothChart } from "../../hooks/usePatients.js";
 import {
+  useCompleteTreatmentRecord,
   useCreateTreatmentRecord,
   useDeleteTreatmentRecord,
   useTreatmentsList,
   useUpdateTreatmentRecord,
-  useUpdateTreatmentStatus,
 } from "../../hooks/useTreatments.js";
 import { useAppointmentsList } from "../../hooks/useAppointments.js";
 import { useDeleteFile, useFilesList, useUploadFile, fileDownloadUrl } from "../../hooks/useFiles.js";
-import { useInvoicesList } from "../../hooks/useInvoices.js";
+import { useDeleteInvoice, useInvoicesList } from "../../hooks/useInvoices.js";
 import { useAuth } from "../../auth/useAuth.js";
 import { ToothChart } from "../../components/ToothChart.js";
-import { formatDate, formatDateTime, todayDateInputValue, toLocalDateString } from "../../lib/dates.js";
+import { formatDate, formatDateTime, todayDateInputValue } from "../../lib/dates.js";
 import { compressImageForUpload } from "../../lib/imageCompression.js";
 import { ApiError } from "../../api/client.js";
-import { Badge, Button, Card, EmptyState, FieldError, Input, Label, PageHeader, Select, Textarea } from "../../components/ui.js";
+import { Badge, Button, Card, EmptyState, FieldError, Input, Label, Modal, PageHeader, Select, Textarea } from "../../components/ui.js";
 
 type Tab = "overview" | "chart" | "treatments" | "files" | "billing";
 const TAB_VALUES: Tab[] = ["overview", "chart", "treatments", "files", "billing"];
 
 export function PatientDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   // Lets a link from elsewhere (e.g. an appointment) land directly on a tab,
   // for example /patients/:id?tab=treatments.
@@ -32,9 +34,22 @@ export function PatientDetailPage() {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [prefillTeeth, setPrefillTeeth] = useState<string[]>([]);
   const { data: patient, isLoading } = usePatient(id);
+  const deletePatient = useDeletePatient(id ?? "");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   if (isLoading) return <p className="text-sm text-slate-400">Loading…</p>;
   if (!patient) return <p className="text-sm text-slate-500">Patient not found.</p>;
+
+  async function onDeletePatient() {
+    setDeleteError(null);
+    if (!confirm(`Delete ${patient!.name}'s record? This can't be undone.`)) return;
+    try {
+      await deletePatient.mutateAsync();
+      navigate("/patients");
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : "Could not delete the patient.");
+    }
+  }
 
   const tabs: { key: Tab; label: string }[] = [
     { key: "overview", label: "Overview" },
@@ -98,6 +113,25 @@ export function PatientDetailPage() {
               <dd className="col-span-2 whitespace-pre-wrap">{patient.medicalHistoryNotes ?? "—"}</dd>
             </dl>
           </Card>
+          {user?.role === "admin" && (
+            <Card className="border-red-200">
+              <h2 className="text-sm font-semibold text-red-800">Danger zone</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Permanently removes this patient from lists and search. Their appointments, treatment notes and
+                invoices stay on record but the patient can no longer be found or billed.
+              </p>
+              <Button
+                type="button"
+                variant="danger"
+                className="mt-3"
+                onClick={() => void onDeletePatient()}
+                disabled={deletePatient.isPending}
+              >
+                {deletePatient.isPending ? "Deleting…" : "Delete patient"}
+              </Button>
+              <FieldError>{deleteError}</FieldError>
+            </Card>
+          )}
         </div>
       )}
       {tab === "chart" && (
@@ -210,11 +244,12 @@ function TreatmentsTab({
   const { data: treatments, isLoading } = useTreatmentsList(patientId);
   const createTreatment = useCreateTreatmentRecord(patientId);
   // Dr.Sri Sushma leads all treatment, so creating a note stays doctor-only.
-  // Flipping a saved note's status is the one everyday edit a doctor still
-  // makes to it; anything else about an already-saved note is admin-only
-  // (see requireRole in treatments.ts) so a correction is always deliberate.
+  // Completing a saved note is the one everyday edit a doctor still makes to
+  // it (see TreatmentRow's "Mark completed" flow); anything else about an
+  // already-saved note is admin-only (see requireRole in treatments.ts) so a
+  // correction is always deliberate.
   const canCreate = user?.role === "doctor";
-  const canToggleStatus = user?.role === "doctor" || user?.role === "admin";
+  const canComplete = user?.role === "doctor" || user?.role === "admin";
   const canEdit = user?.role === "admin";
 
   // Arriving here via the chart's Next button (prefillTeeth set) should open
@@ -258,7 +293,7 @@ function TreatmentsTab({
               key={t.id}
               patientId={patientId}
               treatment={t}
-              canToggleStatus={canToggleStatus}
+              canComplete={canComplete}
               canEdit={canEdit}
               canDelete={user?.role === "admin"}
             />
@@ -269,24 +304,37 @@ function TreatmentsTab({
   );
 }
 
+/** Thumbnail grid for a treatment's photos - clicking one downloads it. */
+function PhotoThumbnails({ fileIds }: { fileIds: string[] }) {
+  if (fileIds.length === 0) return null;
+  return (
+    <div className="mt-1 flex flex-wrap gap-2">
+      {fileIds.map((fileId) => (
+        <a key={fileId} href={fileDownloadUrl(fileId)} className="block h-16 w-16 overflow-hidden rounded-lg border border-slate-200">
+          <img src={fileDownloadUrl(fileId)} alt="Treatment photo" className="h-full w-full object-cover" />
+        </a>
+      ))}
+    </div>
+  );
+}
+
 function TreatmentRow({
   patientId,
   treatment,
-  canToggleStatus,
+  canComplete,
   canEdit,
   canDelete,
 }: {
   patientId: string;
   treatment: TreatmentRecord;
-  canToggleStatus: boolean;
+  canComplete: boolean;
   canEdit: boolean;
   canDelete: boolean;
 }) {
-  const updateStatus = useUpdateTreatmentStatus(patientId, treatment.id);
   const deleteTreatment = useDeleteTreatmentRecord(patientId, treatment.id);
   const [editing, setEditing] = useState(false);
+  const [completing, setCompleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const otherStatus = treatment.status === "planned" ? "completed" : "planned";
 
   function onDelete() {
     setDeleteError(null);
@@ -304,14 +352,10 @@ function TreatmentRow({
         </p>
         <div className="flex shrink-0 items-center gap-2">
           <Badge tone={treatment.status === "planned" ? "amber" : "green"}>{treatment.status}</Badge>
-          {canToggleStatus && (
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => updateStatus.mutate({ status: otherStatus })}
-              disabled={updateStatus.isPending}
-            >
-              Mark {otherStatus}
+          {/* Completing is one-way - see PATCH /:id/complete in treatments.ts - so this only ever shows while still planned. */}
+          {canComplete && treatment.status === "planned" && (
+            <Button size="sm" variant="secondary" onClick={() => setCompleting(true)}>
+              Mark completed
             </Button>
           )}
           {canEdit && (
@@ -327,7 +371,10 @@ function TreatmentRow({
         </div>
       </div>
       <FieldError>{deleteError}</FieldError>
-      <p className="text-xs text-slate-400">{formatDate(treatment.date)}</p>
+      <p className="text-xs text-slate-400">
+        Planned {formatDate(treatment.date)}
+        {treatment.completedDate && ` · Completed ${formatDate(treatment.completedDate)}`}
+      </p>
       {treatment.condition && (
         <p className="mt-1 text-slate-600">
           <span className="font-medium">Condition:</span>{" "}
@@ -336,27 +383,147 @@ function TreatmentRow({
             : treatment.condition.replace(/_/g, " ")}
         </p>
       )}
-      {treatment.notes && <p className="mt-1 text-slate-600">{treatment.notes}</p>}
+      {treatment.notes && (
+        <p className="mt-1 text-slate-600">
+          <span className="font-medium">Pre-op notes:</span> {treatment.notes}
+        </p>
+      )}
       {treatment.prescription && (
         <p className="mt-1 text-slate-600">
           <span className="font-medium">Prescription:</span> {treatment.prescription}
         </p>
       )}
-      {treatment.beforeTreatmentFileId && (
-        // A real download (the server sends Content-Disposition: attachment),
-        // not an inline view - no need for target="_blank" to avoid leaving
-        // the app, since a download never navigates the tab anywhere.
-        <a
-          href={fileDownloadUrl(treatment.beforeTreatmentFileId)}
-          className="mt-1 inline-block text-brand-700 hover:underline"
-        >
-          Download before-treatment photo
-        </a>
+      {treatment.beforeTreatmentFileIds.length > 0 && (
+        <div className="mt-2">
+          <p className="text-xs font-medium text-slate-500">Pre-operative photos</p>
+          <PhotoThumbnails fileIds={treatment.beforeTreatmentFileIds} />
+        </div>
+      )}
+      {treatment.postTreatmentNotes && (
+        <p className="mt-2 text-slate-600">
+          <span className="font-medium">Post-op notes:</span> {treatment.postTreatmentNotes}
+        </p>
+      )}
+      {treatment.afterTreatmentFileIds.length > 0 && (
+        <div className="mt-2">
+          <p className="text-xs font-medium text-slate-500">Post-operative photos</p>
+          <PhotoThumbnails fileIds={treatment.afterTreatmentFileIds} />
+        </div>
       )}
       {canEdit && editing && (
         <TreatmentEditForm patientId={patientId} treatment={treatment} onSaved={() => setEditing(false)} />
       )}
+      {completing && (
+        <MarkCompletedModal patientId={patientId} treatment={treatment} onClose={() => setCompleting(false)} />
+      )}
     </li>
+  );
+}
+
+function MarkCompletedModal({
+  patientId,
+  treatment,
+  onClose,
+}: {
+  patientId: string;
+  treatment: TreatmentRecord;
+  onClose: () => void;
+}) {
+  const uploadPhoto = useUploadFile();
+  const complete = useCompleteTreatmentRecord(patientId, treatment.id);
+  const [completedDate, setCompletedDate] = useState(todayDateInputValue());
+  const [postTreatmentNotes, setPostTreatmentNotes] = useState("");
+  const [photos, setPhotos] = useState<File[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!completedDate) {
+      setError("Set the date the treatment was done.");
+      return;
+    }
+    if (!postTreatmentNotes.trim()) {
+      setError("Add post-operative notes.");
+      return;
+    }
+    if (photos.length === 0) {
+      setError("Add at least one post-operative photo.");
+      return;
+    }
+    setError(null);
+    try {
+      const afterTreatmentFileIds: string[] = [];
+      for (const [index, file] of photos.entries()) {
+        setProgress(`Uploading photo ${index + 1}/${photos.length}…`);
+        const uploaded = await uploadPhoto.mutateAsync({
+          patientId,
+          type: "after_treatment",
+          file: await compressImageForUpload(file),
+        });
+        afterTreatmentFileIds.push(uploaded.item.id);
+      }
+      setProgress("Saving…");
+      await complete.mutateAsync({ completedDate, postTreatmentNotes: postTreatmentNotes.trim(), afterTreatmentFileIds });
+      onClose();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not mark this treatment completed.");
+    } finally {
+      setProgress(null);
+    }
+  }
+
+  return (
+    <Modal title={`Mark "${treatment.procedure}" completed`} onClose={onClose}>
+      <form onSubmit={onSubmit} className="space-y-3">
+        <p className="text-sm text-slate-600">
+          Once marked completed, this can&apos;t be reverted back to planned - double-check the details below.
+        </p>
+        <div>
+          <Label htmlFor="completedDate">Treatment done date</Label>
+          <Input
+            id="completedDate"
+            type="date"
+            value={completedDate}
+            max={todayDateInputValue()}
+            onChange={(e) => setCompletedDate(e.target.value)}
+          />
+        </div>
+        <div>
+          <Label htmlFor="postTreatmentNotes">Post-operative notes</Label>
+          <Textarea
+            id="postTreatmentNotes"
+            rows={3}
+            value={postTreatmentNotes}
+            onChange={(e) => setPostTreatmentNotes(e.target.value)}
+          />
+        </div>
+        <div>
+          <Label htmlFor="postPhotos">Post Operative Photos</Label>
+          <input
+            id="postPhotos"
+            type="file"
+            multiple
+            accept=".jpg,.jpeg,.png,.webp,.heic"
+            onChange={(e) => setPhotos(Array.from(e.target.files ?? []))}
+          />
+          {photos.length > 0 && (
+            <p className="mt-1 text-xs text-slate-500">
+              {photos.length} photo{photos.length === 1 ? "" : "s"} selected
+            </p>
+          )}
+        </div>
+        <FieldError>{error}</FieldError>
+        <div className="flex gap-2">
+          <Button type="submit" disabled={complete.isPending}>
+            {complete.isPending ? (progress ?? "Saving…") : "Save completion"}
+          </Button>
+          <Button type="button" variant="secondary" onClick={onClose} disabled={complete.isPending}>
+            Cancel
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -506,6 +673,93 @@ function TreatmentEditForm({
   );
 }
 
+interface ToothEntry {
+  tooth: string;
+  condition: string;
+  conditionOther: string;
+  notes: string;
+  photos: File[];
+}
+
+/**
+ * One tooth's condition/notes/photos. `editableTooth` (the manual,
+ * non-chart path) uses a fixed id suffix ("manual") so the field ids never
+ * shift as the user types a tooth number - `fixedTooth` (the chart path)
+ * uses the tooth number itself, which never changes after the row is created.
+ */
+function ToothRow({
+  row,
+  editableTooth,
+  onChange,
+}: {
+  row: ToothEntry;
+  editableTooth: boolean;
+  onChange: (patch: Partial<ToothEntry>) => void;
+}) {
+  const idSuffix = editableTooth ? "" : `-${row.tooth}`;
+  return (
+    <div className="rounded-lg border border-slate-200 p-3">
+      {editableTooth ? (
+        <div>
+          <Label htmlFor="tooth">Tooth (optional)</Label>
+          <Input id="tooth" placeholder="e.g. 16" value={row.tooth} onChange={(e) => onChange({ tooth: e.target.value })} />
+        </div>
+      ) : (
+        <Badge tone="brand">Tooth {row.tooth}</Badge>
+      )}
+      <div className="mt-2 grid grid-cols-2 gap-3">
+        <div>
+          <Label htmlFor={`condition${idSuffix}`}>Tooth condition</Label>
+          <Select
+            id={`condition${idSuffix}`}
+            value={row.condition}
+            onChange={(e) => onChange({ condition: e.target.value })}
+          >
+            <option value="" disabled>
+              Select condition…
+            </option>
+            {TOOTH_CONDITIONS.map((c) => (
+              <option key={c} value={c}>
+                {c.replace(/_/g, " ")}
+              </option>
+            ))}
+          </Select>
+        </div>
+        {row.condition === "other" && (
+          <div>
+            <Label htmlFor={`conditionOther${idSuffix}`}>Describe condition</Label>
+            <Input
+              id={`conditionOther${idSuffix}`}
+              value={row.conditionOther}
+              onChange={(e) => onChange({ conditionOther: e.target.value })}
+              placeholder="e.g. Chipped enamel, cosmetic wear"
+            />
+          </div>
+        )}
+      </div>
+      <div className="mt-2">
+        <Label htmlFor={`notes${idSuffix}`}>Notes</Label>
+        <Textarea id={`notes${idSuffix}`} rows={2} value={row.notes} onChange={(e) => onChange({ notes: e.target.value })} />
+      </div>
+      <div className="mt-2">
+        <Label htmlFor={`beforePhoto${idSuffix}`}>Pre Operative Photos</Label>
+        <input
+          id={`beforePhoto${idSuffix}`}
+          type="file"
+          multiple
+          accept=".jpg,.jpeg,.png,.webp,.heic"
+          onChange={(e) => onChange({ photos: Array.from(e.target.files ?? []) })}
+        />
+        {row.photos.length > 0 && (
+          <p className="mt-1 text-xs text-slate-500">
+            {row.photos.length} photo{row.photos.length === 1 ? "" : "s"} selected
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TreatmentForm({
   patientId,
   staffId,
@@ -515,7 +769,7 @@ function TreatmentForm({
 }: {
   patientId: string;
   staffId: string;
-  /** Teeth picked on the chart before landing here (see ToothChartTab's Next button) - one record is created per tooth, sharing everything else in the form. */
+  /** Teeth picked on the chart before landing here (see ToothChartTab's Next button) - one record is created per tooth, each with its own condition/notes/photos. */
   initialTeeth?: string[];
   onSaved: () => void;
   mutate: ReturnType<typeof useCreateTreatmentRecord>;
@@ -531,97 +785,88 @@ function TreatmentForm({
     .filter((a) => a.status === "scheduled" || a.status === "confirmed")
     .sort((a, b) => a.startAt.localeCompare(b.startAt));
 
-  const [form, setForm] = useState<Partial<CreateTreatmentRecordInput>>({
-    date: todayDateInputValue(),
-    status: "planned",
-  });
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  // Keyed by tooth number - one photo per selected tooth (see the photo
-  // section below), used only on the chart-driven, multi-tooth path.
-  const [photoFiles, setPhotoFiles] = useState<Record<string, File | null>>({});
+  const [procedure, setProcedure] = useState("");
+  const [prescription, setPrescription] = useState("");
+  const [appointmentId, setAppointmentId] = useState("");
+  const [rows, setRows] = useState<ToothEntry[]>(() =>
+    hasInitialTeeth
+      ? initialTeeth!.map((tooth) => ({ tooth, condition: "", conditionOther: "", notes: "", photos: [] }))
+      : [{ tooth: "", condition: "", conditionOther: "", notes: "", photos: [] }],
+  );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
 
-  function onAppointmentChange(appointmentId: string) {
-    const appt = linkableAppointments.find((a) => a.id === appointmentId);
-    setForm((f) => ({
-      ...f,
-      appointmentId: appointmentId || undefined,
-      // The note's date follows the appointment it's mapped to.
-      date: appt ? toLocalDateString(appt.startAt) : f.date,
-    }));
+  function updateRow(index: number, patch: Partial<ToothEntry>) {
+    setRows((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const procedure = form.procedure?.trim();
-    const notes = form.notes?.trim();
-    const prescription = form.prescription?.trim();
-    if (!procedure) {
+    const trimmedProcedure = procedure.trim();
+    const trimmedPrescription = prescription.trim();
+    if (!trimmedProcedure) {
       setError("Describe the procedure.");
       return;
     }
-    if (!form.condition) {
-      setError("Select the tooth condition.");
-      return;
-    }
-    if (form.condition === "other" && !form.conditionOther?.trim()) {
-      setError("Describe the condition.");
-      return;
-    }
-    if (!notes) {
-      setError("Add treatment notes.");
-      return;
-    }
-    if (!prescription) {
+    if (!trimmedPrescription) {
       setError("Add a prescription.");
       return;
     }
-    const teeth = hasInitialTeeth ? initialTeeth! : [form.toothNumber];
-    if (hasInitialTeeth && teeth.some((tooth) => !photoFiles[tooth!])) {
-      setError("Add a before-treatment photo for every selected tooth.");
-      return;
-    }
-    if (!hasInitialTeeth && !photoFile) {
-      setError("Add a before-treatment photo.");
-      return;
+    for (const row of rows) {
+      if (!row.condition) {
+        setError("Select the tooth condition for every tooth.");
+        return;
+      }
+      if (row.condition === "other" && !row.conditionOther.trim()) {
+        setError("Describe the condition for every tooth marked \"Other\".");
+        return;
+      }
+      if (!row.notes.trim()) {
+        setError("Add notes for every tooth.");
+        return;
+      }
+      if (row.photos.length === 0) {
+        setError("Add at least one pre-operative photo for every tooth.");
+        return;
+      }
     }
     setError(null);
     setSaving(true);
     try {
-      const base = {
-        ...form,
-        patientId,
-        staffId,
-        procedure,
-        condition: form.condition,
-        conditionOther: form.condition === "other" ? form.conditionOther?.trim() : undefined,
-        notes,
-        prescription,
-        date: form.date!,
-        status: form.status ?? "planned",
-      };
-      // One treatment record per selected tooth, sequentially, each with its
-      // own before-treatment photo - a failure partway through leaves the
-      // earlier teeth saved (and their photos uploaded) rather than losing
-      // the whole batch.
-      for (const [index, tooth] of teeth.entries()) {
-        const label = teeth.length > 1 ? ` for tooth ${tooth} (${index + 1}/${teeth.length})` : "";
-        setProgress(`Uploading photo${label}…`);
-        const file = hasInitialTeeth ? photoFiles[tooth!]! : photoFile!;
-        const uploaded = await uploadPhoto.mutateAsync({
-          patientId,
-          type: "before_treatment",
-          file: await compressImageForUpload(file),
-        });
+      // One treatment record per tooth, sequentially - a failure partway
+      // through leaves the earlier teeth saved (and their photos uploaded)
+      // rather than losing the whole batch.
+      for (const [index, row] of rows.entries()) {
+        const label = rows.length > 1 ? ` for tooth ${row.tooth} (${index + 1}/${rows.length})` : "";
+        const beforeTreatmentFileIds: string[] = [];
+        for (const [photoIndex, file] of row.photos.entries()) {
+          setProgress(`Uploading photo ${photoIndex + 1}/${row.photos.length}${label}…`);
+          const uploaded = await uploadPhoto.mutateAsync({
+            patientId,
+            type: "before_treatment",
+            file: await compressImageForUpload(file),
+          });
+          beforeTreatmentFileIds.push(uploaded.item.id);
+        }
         setProgress(`Saving${label}…`);
-        await mutate.mutateAsync({ ...base, toothNumber: tooth as never, beforeTreatmentFileId: uploaded.item.id });
+        await mutate.mutateAsync({
+          patientId,
+          staffId,
+          appointmentId: appointmentId || undefined,
+          procedure: trimmedProcedure,
+          prescription: trimmedPrescription,
+          toothNumber: (row.tooth || undefined) as never,
+          condition: row.condition as never,
+          conditionOther: row.condition === "other" ? row.conditionOther.trim() : undefined,
+          notes: row.notes.trim(),
+          beforeTreatmentFileIds,
+        });
       }
       // A planned treatment with no appointment linked yet needs one booked
       // to actually happen, so go straight to scheduling one instead of just
       // closing the form. Already linked to one? It's already booked.
-      if (form.status === "planned" && !form.appointmentId) {
+      if (!appointmentId) {
         navigate(`/appointments/new?patientId=${patientId}`);
         return;
       }
@@ -637,28 +882,13 @@ function TreatmentForm({
   return (
     <Card>
       <form onSubmit={onSubmit} className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label htmlFor="procedure">Procedure</Label>
-            <Input
-              id="procedure"
-              value={form.procedure ?? ""}
-              onChange={(e) => setForm((f) => ({ ...f, procedure: e.target.value }))}
-            />
-          </div>
-          <div>
-            <Label htmlFor="date">Date</Label>
-            <Input
-              id="date"
-              type="date"
-              value={form.date ?? ""}
-              onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
-            />
-          </div>
+        <div>
+          <Label htmlFor="procedure">Procedure</Label>
+          <Input id="procedure" value={procedure} onChange={(e) => setProcedure(e.target.value)} />
         </div>
         <div>
-          <Label htmlFor="appointment">Link to appointment (optional)</Label>
-          <Select id="appointment" value={form.appointmentId ?? ""} onChange={(e) => onAppointmentChange(e.target.value)}>
+          <Label htmlFor="appointment">Link to existing appointment</Label>
+          <Select id="appointment" value={appointmentId} onChange={(e) => setAppointmentId(e.target.value)}>
             <option value="">No linked appointment</option>
             {linkableAppointments.map((a) => (
               <option key={a.id} value={a.id}>
@@ -667,119 +897,64 @@ function TreatmentForm({
               </option>
             ))}
           </Select>
-          {form.appointmentId && <p className="mt-1 text-xs text-slate-400">Date below is set from the linked appointment.</p>}
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label htmlFor="tooth">Tooth{hasInitialTeeth ? "" : " (optional)"}</Label>
-            {hasInitialTeeth ? (
-              <div id="tooth" className="flex flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                <span className="text-sm text-slate-600">{initialTeeth!.length > 1 ? "Teeth" : "Tooth"}:</span>
-                {initialTeeth!.map((tooth) => (
-                  <Badge key={tooth} tone="brand">
-                    {tooth}
-                  </Badge>
-                ))}
-                <span className="text-xs text-slate-400">· selected from the chart</span>
-              </div>
-            ) : (
-              <Input
-                id="tooth"
-                placeholder="e.g. 16"
-                value={form.toothNumber ?? ""}
-                onChange={(e) => setForm((f) => ({ ...f, toothNumber: e.target.value || undefined }))}
-              />
-            )}
-          </div>
-          <div>
-            <Label htmlFor="condition">Tooth condition</Label>
-            <Select
-              id="condition"
-              value={form.condition ?? ""}
-              onChange={(e) => setForm((f) => ({ ...f, condition: e.target.value as never }))}
-            >
-              <option value="" disabled>
-                Select condition…
-              </option>
-              {TOOTH_CONDITIONS.map((c) => (
-                <option key={c} value={c}>
-                  {c.replace(/_/g, " ")}
-                </option>
-              ))}
-            </Select>
-          </div>
-        </div>
-        {form.condition === "other" && (
-          <div>
-            <Label htmlFor="conditionOther">Describe condition</Label>
-            <Input
-              id="conditionOther"
-              value={form.conditionOther ?? ""}
-              onChange={(e) => setForm((f) => ({ ...f, conditionOther: e.target.value }))}
-              placeholder="e.g. Chipped enamel, cosmetic wear"
-            />
-          </div>
-        )}
-        <div>
-          <Label htmlFor="status">Status</Label>
-          <Select id="status" value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as never }))}>
-            <option value="planned">Planned</option>
-            <option value="completed">Completed</option>
-          </Select>
-        </div>
-        <div>
-          <Label htmlFor="notes">Notes</Label>
-          <Textarea id="notes" rows={2} value={form.notes ?? ""} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
+          <p className="mt-1 text-xs text-slate-400">
+            {linkableAppointments.length === 0
+              ? "This patient has no scheduled appointments yet."
+              : `${linkableAppointments.length} scheduled appointment${linkableAppointments.length === 1 ? "" : "s"} for this patient.`}
+          </p>
         </div>
         <div>
           <Label htmlFor="prescription">Prescription</Label>
-          <Textarea
-            id="prescription"
-            rows={2}
-            value={form.prescription ?? ""}
-            onChange={(e) => setForm((f) => ({ ...f, prescription: e.target.value }))}
-          />
+          <Textarea id="prescription" rows={2} value={prescription} onChange={(e) => setPrescription(e.target.value)} />
         </div>
-        {hasInitialTeeth ? (
-          <div>
-            <Label>Before-treatment photos</Label>
-            <div className="space-y-2">
-              {initialTeeth!.map((tooth) => (
-                <div key={tooth} className="flex items-center gap-2">
-                  <span className="w-20 shrink-0 text-sm font-medium text-slate-700">Tooth {tooth}</span>
-                  <input
-                    id={`beforePhoto-${tooth}`}
-                    type="file"
-                    accept=".jpg,.jpeg,.png,.webp,.heic"
-                    onChange={(e) => setPhotoFiles((prev) => ({ ...prev, [tooth]: e.target.files?.[0] ?? null }))}
-                  />
-                  {photoFiles[tooth] && <span className="text-xs text-slate-500">{photoFiles[tooth]!.name}</span>}
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div>
-            <Label htmlFor="beforePhoto">Before-treatment photo</Label>
-            <input
-              id="beforePhoto"
-              type="file"
-              accept=".jpg,.jpeg,.png,.webp,.heic"
-              onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)}
+        <div className="space-y-3">
+          <Label>{hasInitialTeeth ? `Teeth (${rows.length})` : "Tooth"}</Label>
+          {rows.map((row, index) => (
+            <ToothRow
+              key={hasInitialTeeth ? row.tooth : "manual"}
+              row={row}
+              editableTooth={!hasInitialTeeth}
+              onChange={(patch) => updateRow(index, patch)}
             />
-            {photoFile && <p className="mt-1 text-xs text-slate-500">{photoFile.name}</p>}
-          </div>
-        )}
+          ))}
+        </div>
         <FieldError>{error}</FieldError>
         <Button type="submit" disabled={saving}>
           {saving
             ? (progress ?? "Saving…")
-            : hasInitialTeeth && initialTeeth!.length > 1
-              ? `Save treatment note for ${initialTeeth!.length} teeth`
+            : hasInitialTeeth && rows.length > 1
+              ? `Save treatment note for ${rows.length} teeth`
               : "Save treatment note"}
         </Button>
       </form>
     </Card>
+  );
+}
+
+function FileTypeBadgeLabel(type: FileType): string {
+  return type.replace(/_/g, " ");
+}
+
+const UPLOADABLE_FILE_TYPES: FileType[] = FILE_TYPES.filter(
+  (t) => t !== "profile_photo" && t !== "before_treatment" && t !== "after_treatment",
+);
+
+function FilePreview({ file }: { file: { id: string; mimeType: string; fileName: string } }) {
+  if (file.mimeType.startsWith("image/")) {
+    return (
+      <a href={fileDownloadUrl(file.id)} className="block h-28 w-full overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+        <img src={fileDownloadUrl(file.id)} alt={file.fileName} className="h-full w-full object-cover" />
+      </a>
+    );
+  }
+  return (
+    <a
+      href={fileDownloadUrl(file.id)}
+      className="flex h-28 w-full flex-col items-center justify-center gap-1 rounded-lg border border-slate-200 bg-slate-50 text-slate-400"
+    >
+      <span className="text-xs font-semibold uppercase tracking-wide">PDF</span>
+      <span className="max-w-[90%] truncate text-[10px] text-slate-400">{file.fileName}</span>
+    </a>
   );
 }
 
@@ -788,16 +963,28 @@ function FilesTab({ patientId }: { patientId: string }) {
   const { data: files, isLoading } = useFilesList(patientId);
   const upload = useUploadFile();
   const deleteFile = useDeleteFile(patientId);
-  const [type, setType] = useState<"xray" | "photo" | "document" | "other">("xray");
+  const [type, setType] = useState<FileType>("xray");
+  const [otherLabel, setOtherLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
   const canDelete = user?.role === "admin";
 
   async function onFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (type === "other" && !otherLabel.trim()) {
+      setError("Describe what this file is.");
+      e.target.value = "";
+      return;
+    }
     setError(null);
     try {
-      await upload.mutateAsync({ patientId, type, file: await compressImageForUpload(file) });
+      await upload.mutateAsync({
+        patientId,
+        type,
+        notes: type === "other" ? otherLabel.trim() : undefined,
+        file: await compressImageForUpload(file),
+      });
+      setOtherLabel("");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Upload failed. Check your connection and try again.");
     } finally {
@@ -811,13 +998,25 @@ function FilesTab({ patientId }: { patientId: string }) {
         <div className="flex flex-wrap items-end gap-3">
           <div>
             <Label htmlFor="fileType">Type</Label>
-            <Select id="fileType" value={type} onChange={(e) => setType(e.target.value as typeof type)}>
-              <option value="xray">X-ray</option>
-              <option value="photo">Photo</option>
-              <option value="document">Document</option>
-              <option value="other">Other</option>
+            <Select id="fileType" value={type} onChange={(e) => setType(e.target.value as FileType)}>
+              {UPLOADABLE_FILE_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {FileTypeBadgeLabel(t)}
+                </option>
+              ))}
             </Select>
           </div>
+          {type === "other" && (
+            <div>
+              <Label htmlFor="otherLabel">Describe this file</Label>
+              <Input
+                id="otherLabel"
+                placeholder="e.g. Referral letter"
+                value={otherLabel}
+                onChange={(e) => setOtherLabel(e.target.value)}
+              />
+            </div>
+          )}
           <div>
             <Label htmlFor="fileUpload">Upload (JPEG, PNG, WEBP, HEIC or PDF, up to 25MB)</Label>
             <input id="fileUpload" type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.pdf" onChange={(e) => void onFileChosen(e)} />
@@ -829,47 +1028,47 @@ function FilesTab({ patientId }: { patientId: string }) {
       <Card>
         {isLoading && <p className="text-sm text-slate-400">Loading…</p>}
         {!isLoading && files?.length === 0 && <EmptyState>No files uploaded yet.</EmptyState>}
-        <ul className="divide-y divide-slate-100">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
           {files?.map((f) => (
-            <li key={f.id} className="flex items-center justify-between py-3 text-sm">
-              <div>
-                <p className="font-medium text-slate-900">{f.fileName}</p>
-                <p className="text-xs text-slate-400">
-                  {f.type} · {formatDateTime(f.uploadedAt)} · {Math.round(f.sizeBytes / 1024)} KB
-                </p>
-              </div>
+            <div key={f.id} className="space-y-1.5">
+              <FilePreview file={f} />
+              <p className="text-xs text-slate-500">
+                {f.type === "other" && f.notes ? f.notes : FileTypeBadgeLabel(f.type)}
+              </p>
+              <p className="text-[11px] text-slate-400">
+                {formatDateTime(f.uploadedAt)} · {Math.round(f.sizeBytes / 1024)} KB
+              </p>
               <div className="flex items-center gap-2">
-                <a
-                  href={fileDownloadUrl(f.id)}
-                  className="inline-flex items-center justify-center rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-                >
+                <a href={fileDownloadUrl(f.id)} className="text-xs font-medium text-brand-700 hover:underline">
                   Download
                 </a>
                 {canDelete && (
-                  <Button
-                    size="sm"
-                    variant="danger"
+                  <button
+                    type="button"
                     onClick={() => {
                       if (confirm(`Delete "${f.fileName}"? This can't be undone from here.`)) {
                         deleteFile.mutate(f.id);
                       }
                     }}
                     disabled={deleteFile.isPending}
+                    className="text-xs font-medium text-red-600 hover:underline disabled:opacity-50"
                   >
                     Delete
-                  </Button>
+                  </button>
                 )}
               </div>
-            </li>
+            </div>
           ))}
-        </ul>
+        </div>
       </Card>
     </div>
   );
 }
 
 function BillingTab({ patientId }: { patientId: string }) {
+  const { user } = useAuth();
   const { data } = useInvoicesList(patientId);
+  const isAdmin = user?.role === "admin";
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
@@ -881,20 +1080,51 @@ function BillingTab({ patientId }: { patientId: string }) {
         {data?.items.length === 0 && <EmptyState>No invoices for this patient yet.</EmptyState>}
         <ul className="divide-y divide-slate-100">
           {data?.items.map((invoice) => (
-            <li key={invoice.id}>
-              <Link to={`/billing/${invoice.id}`} className="flex items-center justify-between py-3 text-sm hover:bg-slate-50">
-                <div>
-                  <p className="font-medium text-slate-900">₹{invoice.totalAmount.toFixed(2)}</p>
-                  <p className="text-xs text-slate-400">{formatDateTime(invoice.date)}</p>
-                </div>
-                <Badge tone={invoice.status === "paid" ? "green" : invoice.status === "cancelled" ? "red" : "amber"}>
-                  {invoice.status.replace("_", " ")}
-                </Badge>
-              </Link>
-            </li>
+            <PatientInvoiceRow key={invoice.id} invoice={invoice} canDelete={isAdmin} />
           ))}
         </ul>
       </Card>
     </div>
+  );
+}
+
+function PatientInvoiceRow({
+  invoice,
+  canDelete,
+}: {
+  invoice: { id: string; totalAmount: number; date: string; status: string };
+  canDelete: boolean;
+}) {
+  const deleteInvoice = useDeleteInvoice(invoice.id);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  async function onDelete() {
+    setDeleteError(null);
+    if (!confirm("Delete this invoice? This can't be undone.")) return;
+    try {
+      await deleteInvoice.mutateAsync();
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : "Could not delete the invoice.");
+    }
+  }
+
+  return (
+    <li className="py-3 text-sm">
+      <div className="flex items-center justify-between gap-3">
+        <Link to={`/billing/${invoice.id}`} className="flex-1 hover:underline">
+          <p className="font-medium text-slate-900">₹{invoice.totalAmount.toFixed(2)}</p>
+          <p className="text-xs text-slate-400">{formatDateTime(invoice.date)}</p>
+        </Link>
+        <Badge tone={invoice.status === "paid" ? "green" : invoice.status === "cancelled" ? "red" : "amber"}>
+          {invoice.status.replace("_", " ")}
+        </Badge>
+        {canDelete && (
+          <Button size="sm" variant="danger" onClick={() => void onDelete()} disabled={deleteInvoice.isPending}>
+            Delete
+          </Button>
+        )}
+      </div>
+      <FieldError>{deleteError}</FieldError>
+    </li>
   );
 }

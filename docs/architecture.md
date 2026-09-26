@@ -25,15 +25,34 @@ Each is one route file in `apps/api/src/routes/` and one folder in
 `apps/web/src/pages/` (see the LLD's "Core Modules" list this app was
 scoped from):
 
-1. **Patients** — demographics, contact, medical history notes.
+1. **Patients** — demographics, contact, and a required clinical intake
+   (medical history, chief complaint, past dental history, medications) -
+   all four are mandatory at creation (`createPatientSchema`), though nullable
+   at the DB level like every other D1-added text column here (see the
+   `sessions.last_used_at` comment in `db/schema.ts`).
 2. **Scheduling** — appointments with a real conflict check (`hasConflict` in
    `appointments.ts`, backed by the unit-tested pure function `rangesOverlap`
-   in `lib/scheduling.ts`).
-3. **EMR / dental charting** — `treatment_records` rows, one per procedure,
-   optionally tied to an FDI tooth number and a condition. The tooth chart
-   itself (`GET /api/patients/:id/tooth-chart`) has no table of its own — it's
-   derived from the latest treatment record per tooth (`lib/toothChart.ts`),
-   so there is exactly one source of truth for a tooth's condition.
+   in `lib/scheduling.ts`). An appointment can only be booked with a doctor
+   (`assertStaffIsDoctor`) and only from now onward (`createAppointmentSchema`'s
+   past-time refine); a new booking can never land in the past, though editing
+   an already-past appointment's other fields (e.g. marking it completed) is
+   unaffected. Saving an edit into `rescheduled`, `no_show` or `cancelled`
+   offers to book a follow-up right away; if one is booked, the original
+   appointment's `rescheduledToAppointmentId` points at it.
+3. **EMR / dental charting** — `treatment_records` rows, one per procedure per
+   tooth, tied to an FDI tooth number and a condition. Every record starts
+   `planned` (created doctor-only, `POST /api/treatments`) and moves to
+   `completed` exactly once, through its own endpoint
+   (`PATCH /api/treatments/:id/complete`) that requires post-operative
+   photos, post-operative notes and the actual treatment-done date - there is
+   no route back from completed to planned. Pre- and post-operative photo ids
+   are stored as a JSON-encoded array per record (`beforeTreatmentFileIds` /
+   `afterTreatmentFileIds` in `lib/treatmentFiles.ts`) rather than a join
+   table, since they're only ever read or written alongside their one
+   treatment record. The tooth chart itself (`GET /api/patients/:id/tooth-chart`)
+   has no table of its own — it's derived from the latest treatment record per
+   tooth (`lib/toothChart.ts`), so there is exactly one source of truth for a
+   tooth's condition.
 4. **Billing** — invoices with line items and payments. `status` is always
    derived from `amountPaid` vs `totalAmount` (`lib/billing.ts`), never set by
    hand, except `cancelled` which is explicit and sticky.
@@ -69,8 +88,9 @@ Three roles: `admin` (system/operations, never a treating clinician),
 | Module | front_desk | doctor | admin |
 |---|---|---|---|
 | Patients, appointments, invoices/payments, files, reminders — create/edit | read/write | read/write | read/write |
-| Treatment records (clinical notes) — create | no access | write | no access |
-| Treatment records — edit content, or flip status | no access | status only | full edit |
+| Treatment records (clinical notes) — create (always `planned`) | no access | write | no access |
+| Treatment records — mark completed (one-way, evidence required) | no access | write | write |
+| Treatment records — edit other content | no access | no access | full edit |
 | Staff accounts — create/deactivate/reset password | no access | front-desk accounts only | any account |
 | **Delete** — patients, appointments, treatment records, invoices/payments, files, staff accounts | no access | no access | **only role that can delete anything** |
 

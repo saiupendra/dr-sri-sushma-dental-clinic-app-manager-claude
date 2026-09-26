@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { type AnySQLiteColumn, index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 const timestamps = {
   createdAt: text("created_at")
@@ -68,6 +68,13 @@ export const patients = sqliteTable(
     sex: text("sex").notNull().default("unspecified"),
     address: text("address"),
     medicalHistoryNotes: text("medical_history_notes"),
+    // All three nullable at the DB level only because D1 rejects a
+    // non-constant ALTER TABLE default (see the sessions.last_used_at
+    // comment above) - createPatientSchema is what actually requires them
+    // non-empty for every new patient, same pattern as address/medicalHistoryNotes.
+    chiefComplaint: text("chief_complaint"),
+    pastDentalHistory: text("past_dental_history"),
+    medicationsUsing: text("medications_using"),
     heightFeet: real("height_feet"),
     weightKg: real("weight_kg"),
     bloodPressure: text("blood_pressure"),
@@ -97,6 +104,14 @@ export const appointments = sqliteTable(
     endAt: text("end_at").notNull(),
     status: text("status").notNull().default("scheduled"),
     reasonNote: text("reason_note"),
+    // Set when this appointment was rescheduled/no-showed/cancelled and a
+    // follow-up was booked from that popup (see routes/appointments.ts) -
+    // points at the new appointment row. Self-referencing, so the FK target
+    // is wrapped in a lazy callback (this table isn't fully defined yet at
+    // this point in its own initializer).
+    rescheduledToAppointmentId: text("rescheduled_to_appointment_id").references(
+      (): AnySQLiteColumn => appointments.id,
+    ),
     createdBy: text("created_by").references(() => staff.id),
     deletedAt: text("deleted_at"),
     ...timestamps,
@@ -123,15 +138,27 @@ export const treatmentRecords = sqliteTable(
     notes: text("notes"),
     prescription: text("prescription"),
     status: text("status").notNull().default("completed"),
+    // Set server-side at creation (today), never client-supplied.
     date: text("date").notNull(),
+    // Set only once, by PATCH /:id/complete - the date the work was
+    // actually done, mandatory at completion. Null while still planned.
+    completedDate: text("completed_date"),
+    postTreatmentNotes: text("post_treatment_notes"),
     staffId: text("staff_id")
       .notNull()
       .references(() => staff.id),
-    // Nullable, no default (see the sessions.last_used_at comment above for
-    // why: a non-constant default on ALTER TABLE ADD COLUMN fails on real
-    // D1). Nullable for rows saved before this column existed; every new
-    // treatment record is required to set it (see createTreatmentRecordSchema).
+    // Deprecated: superseded by beforeTreatmentFileIds (plural, JSON array)
+    // below, which supports multiple photos per tooth. Left in place,
+    // unused by the app, only so rows saved before that migration keep
+    // their original single photo on record.
     beforeTreatmentFileId: text("before_treatment_file_id").references(() => files.id),
+    // JSON-encoded array of files.id (see lib/treatmentFiles.ts). A join
+    // table would be the "proper" normalized shape, but these are only ever
+    // read/written alongside their one treatment record, never queried
+    // independently, so a JSON array avoids the extra table and joins for
+    // no real benefit at this app's scale.
+    beforeTreatmentFileIds: text("before_treatment_file_ids"),
+    afterTreatmentFileIds: text("after_treatment_file_ids"),
     deletedAt: text("deleted_at"),
     ...timestamps,
   },

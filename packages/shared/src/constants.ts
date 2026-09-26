@@ -31,8 +31,12 @@ export const APPOINTMENT_STATUSES = [
   "completed",
   "cancelled",
   "no_show",
+  "rescheduled",
 ] as const;
 export type AppointmentStatus = (typeof APPOINTMENT_STATUSES)[number];
+
+/** Saving with one of these statuses offers to book a follow-up appointment - see AppointmentFormPage. */
+export const APPOINTMENT_STATUSES_OFFERING_FOLLOWUP = ["rescheduled", "no_show", "cancelled"] as const;
 
 export const INVOICE_STATUSES = [
   "unpaid",
@@ -45,7 +49,15 @@ export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
 export const PAYMENT_METHODS = ["cash", "card", "upi", "amazon_pay", "netbanking", "other"] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
-export const FILE_TYPES = ["xray", "photo", "document", "other", "profile_photo", "before_treatment"] as const;
+export const FILE_TYPES = [
+  "xray",
+  "photo",
+  "document",
+  "other",
+  "profile_photo",
+  "before_treatment",
+  "after_treatment",
+] as const;
 export type FileType = (typeof FILE_TYPES)[number];
 
 export const REMINDER_CHANNELS = ["whatsapp", "sms"] as const;

@@ -9,7 +9,7 @@ import { Badge, EmptyState } from "../components/ui.js";
 type TileFilter = "appointments" | "remaining" | "completed" | "changed";
 
 const STATUS_TONE: Record<string, "slate" | "green" | "amber" | "red" | "brand"> = {
-  scheduled: "brand", confirmed: "green", completed: "slate", cancelled: "red", no_show: "amber",
+  scheduled: "brand", confirmed: "green", completed: "slate", cancelled: "red", no_show: "amber", rescheduled: "amber",
 };
 
 /** The daily summary follows the clinic's calendar day, regardless of device timezone. */
@@ -24,10 +24,10 @@ export function DashboardPage() {
   const now = new Date();
   const { data: appointments, isLoading, isError } = useAppointmentsList(clinicDayBounds(now));
   const today = appointments ?? [];
-  const active = today.filter((a) => a.status !== "cancelled" && a.status !== "no_show");
+  const active = today.filter((a) => a.status !== "cancelled" && a.status !== "no_show" && a.status !== "rescheduled");
   const remaining = active.filter((a) => a.status !== "completed" && new Date(a.endAt).getTime() > now.getTime());
   const completedList = today.filter((a) => a.status === "completed");
-  const changedList = today.filter((a) => a.status === "no_show" || a.status === "cancelled");
+  const changedList = today.filter((a) => a.status === "no_show" || a.status === "cancelled" || a.status === "rescheduled");
   const next = remaining[0];
   const dateLabel = new Intl.DateTimeFormat("en-IN", {
     weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Kolkata",

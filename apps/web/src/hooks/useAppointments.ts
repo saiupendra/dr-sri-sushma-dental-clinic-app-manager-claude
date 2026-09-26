@@ -63,6 +63,7 @@ export function useCreateAppointment() {
           endAt: vars.endAt,
           status: vars.status ?? "scheduled",
           reasonNote: vars.reasonNote ?? null,
+          rescheduledToAppointmentId: null,
           createdBy: null,
           createdAt: now,
           updatedAt: now,

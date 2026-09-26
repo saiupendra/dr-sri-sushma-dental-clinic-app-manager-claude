@@ -57,6 +57,13 @@
       "when": 1790436424226,
       "tag": "0007_green_mongu",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1790446069535,
+      "tag": "0008_hot_morbius",
+      "breakpoints": true
     }
   ]
 }

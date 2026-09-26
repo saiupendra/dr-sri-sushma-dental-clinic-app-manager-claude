@@ -1,15 +1,16 @@
 import { Hono } from "hono";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import {
+  completeTreatmentRecordSchema,
   createTreatmentRecordSchema,
   idParamSchema,
   treatmentListQuerySchema,
   updateTreatmentRecordSchema,
-  updateTreatmentStatusSchema,
 } from "@clinic/shared";
 import { getDb } from "../db/client.js";
-import { files, treatmentRecords } from "../db/schema.js";
+import { treatmentRecords } from "../db/schema.js";
 import { badRequest, notFound } from "../lib/responses.js";
+import { assertOwnedPatientFiles, decodeFileIds, encodeFileIds } from "../lib/treatmentFiles.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { validate } from "../lib/validate.js";
 import type { AppContext } from "../types.js";
@@ -18,6 +19,13 @@ export const treatmentRoutes = new Hono<AppContext>();
 treatmentRoutes.use("*", requireAuth);
 
 function toTreatment(row: typeof treatmentRecords.$inferSelect) {
+  // Legacy rows saved before beforeTreatmentFileIds existed only ever had
+  // the singular column - fall back to it so their one photo still shows.
+  const beforeTreatmentFileIds = row.beforeTreatmentFileIds
+    ? decodeFileIds(row.beforeTreatmentFileIds)
+    : row.beforeTreatmentFileId
+      ? [row.beforeTreatmentFileId]
+      : [];
   return {
     id: row.id,
     patientId: row.patientId,
@@ -30,8 +38,11 @@ function toTreatment(row: typeof treatmentRecords.$inferSelect) {
     prescription: row.prescription,
     status: row.status,
     date: row.date,
+    completedDate: row.completedDate,
+    postTreatmentNotes: row.postTreatmentNotes,
     staffId: row.staffId,
-    beforeTreatmentFileId: row.beforeTreatmentFileId,
+    beforeTreatmentFileIds,
+    afterTreatmentFileIds: decodeFileIds(row.afterTreatmentFileIds),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -69,6 +80,8 @@ treatmentRoutes.get("/:id", validate("param", idParamSchema), async (c) => {
 // Clinical entries are doctor-only to write: Dr.Sri Sushma leads all treatment
 // at this clinic, and front-desk staff should never author clinical notes.
 // Front-desk can still read them (e.g. to build an invoice from completed work).
+// Every new record starts life as "planned" - see completeTreatmentRecordSchema
+// for the separate, evidence-requiring step that moves it to "completed".
 treatmentRoutes.post(
   "/",
   requireRole("doctor"),
@@ -77,14 +90,13 @@ treatmentRoutes.post(
     const input = c.req.valid("json");
     const db = getDb(c.env);
 
-    const [photo] = await db
-      .select({ id: files.id, patientId: files.patientId, type: files.type })
-      .from(files)
-      .where(and(eq(files.id, input.beforeTreatmentFileId), isNull(files.deletedAt)))
-      .limit(1);
-    if (!photo || photo.patientId !== input.patientId || photo.type !== "before_treatment") {
-      throw badRequest("beforeTreatmentFileId must be an uploaded before-treatment photo for this patient");
-    }
+    await assertOwnedPatientFiles(
+      db,
+      input.beforeTreatmentFileIds,
+      input.patientId,
+      "before_treatment",
+      "Pre-operative photos",
+    );
 
     const id = input.id ?? crypto.randomUUID();
     const now = new Date().toISOString();
@@ -99,12 +111,12 @@ treatmentRoutes.post(
         condition: input.condition,
         conditionOther: input.condition === "other" ? (input.conditionOther ?? null) : null,
         procedure: input.procedure,
-        notes: input.notes ?? null,
-        prescription: input.prescription ?? null,
-        status: input.status,
-        date: input.date,
+        notes: input.notes,
+        prescription: input.prescription,
+        status: "planned",
+        date: now.slice(0, 10),
         staffId: input.staffId,
-        beforeTreatmentFileId: input.beforeTreatmentFileId,
+        beforeTreatmentFileIds: encodeFileIds(input.beforeTreatmentFileIds),
         createdAt: now,
         updatedAt: now,
       })
@@ -115,30 +127,48 @@ treatmentRoutes.post(
   },
 );
 
-// Doctor keeps the one everyday edit to a saved record - flipping its
-// status as work actually happens - so charting and invoicing (which
-// requires a completed treatment) don't need an admin in the loop for
-// routine visits. Anything else about a saved record is admin-only, below.
+// The one-way move from planned to completed. Post-operative photos,
+// post-operative notes and the actual treatment-done date are all
+// mandatory - this is the clinical record of what was done, not just a
+// status flip - and there is deliberately no way back to "planned" once
+// completed (see the guard below).
 treatmentRoutes.patch(
-  "/:id/status",
+  "/:id/complete",
   requireRole("admin", "doctor"),
   validate("param", idParamSchema),
-  validate("json", updateTreatmentStatusSchema),
+  validate("json", completeTreatmentRecordSchema),
   async (c) => {
     const { id } = c.req.valid("param");
-    const { status } = c.req.valid("json");
+    const input = c.req.valid("json");
     const db = getDb(c.env);
 
     const [existing] = await db
-      .select({ id: treatmentRecords.id })
+      .select()
       .from(treatmentRecords)
       .where(and(eq(treatmentRecords.id, id), isNull(treatmentRecords.deletedAt)))
       .limit(1);
     if (!existing) throw notFound("Treatment record");
+    if (existing.status === "completed") {
+      throw badRequest("This treatment note is already marked completed and can't be reverted.");
+    }
+
+    await assertOwnedPatientFiles(
+      db,
+      input.afterTreatmentFileIds,
+      existing.patientId,
+      "after_treatment",
+      "Post-operative photos",
+    );
 
     await db
       .update(treatmentRecords)
-      .set({ status, updatedAt: new Date().toISOString() })
+      .set({
+        status: "completed",
+        completedDate: input.completedDate,
+        postTreatmentNotes: input.postTreatmentNotes,
+        afterTreatmentFileIds: encodeFileIds(input.afterTreatmentFileIds),
+        updatedAt: new Date().toISOString(),
+      })
       .where(eq(treatmentRecords.id, id));
 
     const [row] = await db.select().from(treatmentRecords).where(eq(treatmentRecords.id, id)).limit(1);
@@ -146,10 +176,10 @@ treatmentRoutes.patch(
   },
 );
 
-// Editing the content of an already-saved note (as opposed to just its
-// status, above) is admin-only: neither the doctor nor front-desk should be
-// able to alter a clinical record after the fact without going through the
-// admin account, so a correction is always deliberate and accountable.
+// Editing the content of an already-saved note (as opposed to completing it,
+// above) is admin-only: neither the doctor nor front-desk should be able to
+// alter a clinical record after the fact without going through the admin
+// account, so a correction is always deliberate and accountable.
 treatmentRoutes.patch(
   "/:id",
   requireRole("admin"),
@@ -182,8 +212,8 @@ treatmentRoutes.patch(
 );
 
 // Deleting a saved clinical record is admin-only - unlike creating one
-// (doctor-only) or toggling its status (admin+doctor). Once something is
-// saved, only admin can remove it; see the RBAC table in docs/architecture.md.
+// (doctor-only) or completing it (admin+doctor). Once something is saved,
+// only admin can remove it; see the RBAC table in docs/architecture.md.
 treatmentRoutes.delete("/:id", requireRole("admin"), validate("param", idParamSchema), async (c) => {
   const { id } = c.req.valid("param");
   const db = getDb(c.env);

@@ -83,6 +83,16 @@ export function AppointmentDetailPage() {
               <dd className="col-span-2">{appointment.reasonNote}</dd>
             </>
           )}
+          {appointment.rescheduledToAppointmentId && (
+            <>
+              <dt className="text-slate-500">Follow-up</dt>
+              <dd className="col-span-2">
+                <Link to={`/appointments/${appointment.rescheduledToAppointmentId}`} className="font-medium text-brand-700 hover:underline">
+                  View the booked follow-up appointment →
+                </Link>
+              </dd>
+            </>
+          )}
         </dl>
       </Card>
 
