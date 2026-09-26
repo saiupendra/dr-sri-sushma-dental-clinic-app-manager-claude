@@ -43,6 +43,13 @@
       "when": 1790423996102,
       "tag": "0005_hard_the_watchers",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1790433133467,
+      "tag": "0006_stormy_zzzax",
+      "breakpoints": true
     }
   ]
 }

@@ -112,6 +112,8 @@ export const treatmentRecords = sqliteTable(
     appointmentId: text("appointment_id").references(() => appointments.id),
     toothNumber: text("tooth_number"),
     condition: text("condition"),
+    // Free-text description when condition is "other"; null otherwise.
+    conditionOther: text("condition_other"),
     procedure: text("procedure").notNull(),
     notes: text("notes"),
     prescription: text("prescription"),
@@ -145,6 +147,9 @@ export const invoices = sqliteTable(
     date: text("date").notNull(),
     totalAmount: real("total_amount").notNull().default(0),
     amountPaid: real("amount_paid").notNull().default(0),
+    // Raw inputs behind totalAmount's discount - see routes/invoices.ts.
+    discountPercent: real("discount_percent").notNull().default(0),
+    discountAmount: real("discount_amount").notNull().default(0),
     notes: text("notes"),
     createdBy: text("created_by").references(() => staff.id),
     deletedAt: text("deleted_at"),
