@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import type { CreateInvoiceItemInput } from "@clinic/shared";
 import { useCreateInvoice } from "../../hooks/useInvoices.js";
@@ -7,6 +7,8 @@ import { usePatient } from "../../hooks/usePatients.js";
 import { useTreatmentsList } from "../../hooks/useTreatments.js";
 import { ApiError } from "../../api/client.js";
 import { Button, Card, EmptyState, FieldError, Input, Label, PageHeader } from "../../components/ui.js";
+
+const CONSULTATION_FEE_DESCRIPTION = "Consultation fee";
 
 export function InvoiceFormPage() {
   const [searchParams] = useSearchParams();
@@ -21,6 +23,23 @@ export function InvoiceFormPage() {
 
   const effectivePatient =
     patient ?? (preselectedPatient ? { id: preselectedPatient.id, name: preselectedPatient.name, phone: preselectedPatient.phone } : null);
+
+  // Full record (PatientPicker only hands back id/name/phone) so the invoice
+  // can be seeded with this patient's consultation fee below.
+  const { data: fullPatient } = usePatient(effectivePatient?.id);
+
+  useEffect(() => {
+    if (!fullPatient) return;
+    const fee = fullPatient.consultationFee ?? 0;
+    setItems((prev) => {
+      // Only ever overwrite what auto-fill itself put there - never a line
+      // item the user actually typed something into.
+      const [first] = prev;
+      const isAutoFillable = prev.length === 1 && (first?.description === "" || first?.description === CONSULTATION_FEE_DESCRIPTION);
+      if (!isAutoFillable) return prev;
+      return [{ description: CONSULTATION_FEE_DESCRIPTION, amount: fee }];
+    });
+  }, [fullPatient]);
 
   const { data: treatments, isLoading: treatmentsLoading } = useTreatmentsList(effectivePatient?.id);
   const hasCompletedTreatment = !!treatments?.some((t) => t.status === "completed");
@@ -84,32 +103,33 @@ export function InvoiceFormPage() {
           )}
           <div className={blockedByNoCompletedTreatment ? "pointer-events-none opacity-50" : undefined}>
             <Label>Line items</Label>
-            <div className="space-y-2">
+            <div className="space-y-3">
               {items.map((item, i) => (
-                <div key={i} className="flex gap-2">
+                <div key={i} className="space-y-2 rounded-lg border border-slate-200 p-2">
                   <Input
                     placeholder="Description (e.g. Scaling and polishing)"
                     value={item.description}
                     onChange={(e) => updateItem(i, { description: e.target.value })}
-                    className="flex-1"
                   />
-                  <Input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    placeholder="Amount"
-                    value={item.amount || ""}
-                    onChange={(e) => updateItem(i, { amount: Number(e.target.value) })}
-                    className="w-32"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => setItems((prev) => prev.filter((_, idx) => idx !== i))}
-                    disabled={items.length === 1}
-                  >
-                    ✕
-                  </Button>
+                  <div className="flex gap-2">
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      placeholder="Amount"
+                      value={item.amount || ""}
+                      onChange={(e) => updateItem(i, { amount: Number(e.target.value) })}
+                      className="flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setItems((prev) => prev.filter((_, idx) => idx !== i))}
+                      disabled={items.length === 1}
+                    >
+                      ✕
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>

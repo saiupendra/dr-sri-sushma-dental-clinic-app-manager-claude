@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   createInvoiceSchema,
   idParamSchema,
@@ -9,7 +9,7 @@ import {
 } from "@clinic/shared";
 import type { InvoiceStatus } from "@clinic/shared";
 import { getDb, type Db } from "../db/client.js";
-import { invoiceItems, invoices, patients, payments, treatmentRecords } from "../db/schema.js";
+import { invoiceItems, invoices, patients, payments, staff, treatmentRecords } from "../db/schema.js";
 import { deriveInvoiceStatus } from "../lib/billing.js";
 import { randomToken } from "../lib/crypto.js";
 import { generateInvoicePdf } from "../lib/invoicePdf.js";
@@ -69,18 +69,37 @@ export async function loadInvoicePdfBytes(db: Db, id: string, requireShareToken?
       shareToken: invoices.shareToken,
       patientName: patients.name,
       patientPhone: patients.phone,
+      generatedByName: staff.name,
     })
     .from(invoices)
     .innerJoin(patients, eq(invoices.patientId, patients.id))
+    // Left, not inner: createdBy is nullable (pre-existing rows, or the
+    // account that created it was later removed), and the invoice must
+    // still render either way - the PDF just omits the footer credit.
+    .leftJoin(staff, eq(invoices.createdBy, staff.id))
     .where(and(eq(invoices.id, id), isNull(invoices.deletedAt)))
     .limit(1);
   if (!row) return null;
   if (requireShareToken !== undefined && row.shareToken !== requireShareToken) return null;
 
   const items = await db
-    .select({ description: invoiceItems.description, amount: invoiceItems.amount })
+    .select({ description: invoiceItems.description, amount: invoiceItems.amount, treatmentRecordId: invoiceItems.treatmentRecordId })
     .from(invoiceItems)
     .where(eq(invoiceItems.invoiceId, id));
+
+  // Only line items billed for actual treatment carry a treatmentRecordId
+  // (a plain consultation-fee line doesn't) - treatmentRecords.staffId is
+  // always a doctor account, since only "doctor" can write one (RBAC).
+  const treatmentRecordIds = [...new Set(items.map((item) => item.treatmentRecordId).filter((v): v is string => v !== null))];
+  let treatedByNames: string[] = [];
+  if (treatmentRecordIds.length > 0) {
+    const doctorRows = await db
+      .select({ name: staff.name })
+      .from(treatmentRecords)
+      .innerJoin(staff, eq(treatmentRecords.staffId, staff.id))
+      .where(inArray(treatmentRecords.id, treatmentRecordIds));
+    treatedByNames = [...new Set(doctorRows.map((r) => r.name))];
+  }
 
   return generateInvoicePdf({
     invoiceId: row.invoiceId,
@@ -91,6 +110,8 @@ export async function loadInvoicePdfBytes(db: Db, id: string, requireShareToken?
     items,
     totalAmount: row.totalAmount,
     amountPaid: row.amountPaid,
+    generatedByName: row.generatedByName,
+    treatedByNames,
   });
 }
 
