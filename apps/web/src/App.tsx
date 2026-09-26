@@ -37,21 +37,27 @@ export function App() {
         <Route element={<Layout />}>
           <Route index element={<HomePage />} />
 
-          <Route element={<ProtectedRoute roles={["doctor", "front_desk"]} />}>
-            <Route path="patients" element={<PatientListPage />} />
-            <Route path="patients/new" element={<PatientFormPage />} />
-            <Route path="patients/:id" element={<PatientDetailPage />} />
-            <Route path="patients/:id/edit" element={<PatientFormPage />} />
+          {/*
+            Patients/appointments/billing are reachable by every signed-in
+            role, admin included: admin has no create access to any of it
+            (treatment notes, appointments, invoices are gated server-side,
+            same as for front-desk today), but does need to reach a
+            patient's Treatment notes and Files tabs to use its edit/delete
+            capabilities there (see requireRole in treatments.ts/files.ts).
+          */}
+          <Route path="patients" element={<PatientListPage />} />
+          <Route path="patients/new" element={<PatientFormPage />} />
+          <Route path="patients/:id" element={<PatientDetailPage />} />
+          <Route path="patients/:id/edit" element={<PatientFormPage />} />
 
-            <Route path="appointments" element={<AppointmentListPage />} />
-            <Route path="appointments/new" element={<AppointmentFormPage />} />
-            <Route path="appointments/:id" element={<AppointmentDetailPage />} />
-            <Route path="appointments/:id/edit" element={<AppointmentFormPage />} />
+          <Route path="appointments" element={<AppointmentListPage />} />
+          <Route path="appointments/new" element={<AppointmentFormPage />} />
+          <Route path="appointments/:id" element={<AppointmentDetailPage />} />
+          <Route path="appointments/:id/edit" element={<AppointmentFormPage />} />
 
-            <Route path="billing" element={<InvoiceListPage />} />
-            <Route path="billing/new" element={<InvoiceFormPage />} />
-            <Route path="billing/:id" element={<InvoiceDetailPage />} />
-          </Route>
+          <Route path="billing" element={<InvoiceListPage />} />
+          <Route path="billing/new" element={<InvoiceFormPage />} />
+          <Route path="billing/:id" element={<InvoiceDetailPage />} />
 
           <Route element={<ProtectedRoute roles={["admin", "doctor"]} />}>
             <Route path="staff" element={<StaffListPage />} />

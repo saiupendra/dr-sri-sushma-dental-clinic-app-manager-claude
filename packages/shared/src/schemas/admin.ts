@@ -1,11 +1,12 @@
 import { z } from "zod";
+import { ROLES } from "../constants.js";
 import { idSchema } from "./common.js";
 
 export const sessionSummarySchema = z.object({
   id: z.string(), // sha256 hex of the session token, not a UUID
   staffId: idSchema,
   staffName: z.string(),
-  staffRole: z.string(),
+  staffRole: z.enum(ROLES),
   userAgent: z.string().nullable(),
   isCurrent: z.boolean(),
   createdAt: z.string(),
@@ -22,3 +23,11 @@ export const storageStatsSchema = z.object({
   totalBytes: z.number().int().nonnegative(),
 });
 export type StorageStats = z.infer<typeof storageStatsSchema>;
+
+/** A nightly (or on-demand) full-data JSON snapshot in R2 - see runNightlyBackup. */
+export const backupSummarySchema = z.object({
+  date: z.string(), // YYYY-MM-DD, also the download key
+  sizeBytes: z.number().int().nonnegative(),
+  uploaded: z.string(), // ISO timestamp
+});
+export type BackupSummary = z.infer<typeof backupSummarySchema>;

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { TOOTH_CONDITIONS, type CreateTreatmentRecordInput, type TreatmentRecord } from "@clinic/shared";
 import { usePatient, usePatientToothChart } from "../../hooks/usePatients.js";
 import {
@@ -13,14 +13,21 @@ import { useInvoicesList } from "../../hooks/useInvoices.js";
 import { useAuth } from "../../auth/useAuth.js";
 import { ToothChart } from "../../components/ToothChart.js";
 import { formatDate, formatDateTime, todayDateInputValue } from "../../lib/dates.js";
+import { compressImageForUpload } from "../../lib/imageCompression.js";
 import { ApiError } from "../../api/client.js";
 import { Badge, Button, Card, EmptyState, FieldError, Input, Label, PageHeader, Select, Textarea } from "../../components/ui.js";
 
 type Tab = "overview" | "chart" | "treatments" | "files" | "billing";
+const TAB_VALUES: Tab[] = ["overview", "chart", "treatments", "files", "billing"];
 
 export function PatientDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const [tab, setTab] = useState<Tab>("overview");
+  const [searchParams] = useSearchParams();
+  // Lets a link from elsewhere (e.g. an appointment) land directly on a tab,
+  // for example /patients/:id?tab=treatments.
+  const requestedTab = searchParams.get("tab");
+  const initialTab: Tab = TAB_VALUES.includes(requestedTab as Tab) ? (requestedTab as Tab) : "overview";
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [prefillTooth, setPrefillTooth] = useState<string | null>(null);
   const { data: patient, isLoading } = usePatient(id);
 
@@ -123,7 +130,7 @@ function ProfilePhoto({ patientId, patientName }: { patientId: string; patientNa
     if (!file) return;
     setError(null);
     try {
-      await upload.mutateAsync({ patientId, type: "profile_photo", file });
+      await upload.mutateAsync({ patientId, type: "profile_photo", file: await compressImageForUpload(file) });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Upload failed. Check your connection and try again.");
     } finally {
@@ -192,9 +199,11 @@ function TreatmentsTab({
   // Arriving here from a tooth click (prefillTooth set) should open the form
   // immediately, pre-filled with that tooth, rather than just landing on a
   // tab with no indication of which tooth was picked or how to record it.
+  // Only for whoever can actually create one - otherwise this would open a
+  // form that just 403s on submit.
   useEffect(() => {
-    if (prefillTooth) setShowForm(true);
-  }, [prefillTooth]);
+    if (prefillTooth && canCreate) setShowForm(true);
+  }, [prefillTooth, canCreate]);
 
   function closeForm() {
     setShowForm(false);
@@ -291,13 +300,14 @@ function TreatmentRow({
         </p>
       )}
       {treatment.beforeTreatmentFileId && (
+        // A real download (the server sends Content-Disposition: attachment),
+        // not an inline view - no need for target="_blank" to avoid leaving
+        // the app, since a download never navigates the tab anywhere.
         <a
           href={fileDownloadUrl(treatment.beforeTreatmentFileId)}
-          target="_blank"
-          rel="noreferrer"
           className="mt-1 inline-block text-brand-700 hover:underline"
         >
-          Before-treatment photo
+          Download before-treatment photo
         </a>
       )}
       {canEdit && editing && (
@@ -466,7 +476,11 @@ function TreatmentForm({
       return;
     }
     try {
-      const uploaded = await uploadPhoto.mutateAsync({ patientId, type: "before_treatment", file: photoFile });
+      const uploaded = await uploadPhoto.mutateAsync({
+        patientId,
+        type: "before_treatment",
+        file: await compressImageForUpload(photoFile),
+      });
       await mutate.mutateAsync({
         ...form,
         patientId,
@@ -598,7 +612,7 @@ function FilesTab({ patientId }: { patientId: string }) {
     if (!file) return;
     setError(null);
     try {
-      await upload.mutateAsync({ patientId, type, file });
+      await upload.mutateAsync({ patientId, type, file: await compressImageForUpload(file) });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Upload failed. Check your connection and try again.");
     } finally {
@@ -634,15 +648,18 @@ function FilesTab({ patientId }: { patientId: string }) {
           {files?.map((f) => (
             <li key={f.id} className="flex items-center justify-between py-3 text-sm">
               <div>
-                <a href={fileDownloadUrl(f.id)} target="_blank" rel="noreferrer" className="font-medium text-brand-700 hover:underline">
-                  {f.fileName}
-                </a>
+                <p className="font-medium text-slate-900">{f.fileName}</p>
                 <p className="text-xs text-slate-400">
-                  {f.type} · {formatDateTime(f.uploadedAt)}
+                  {f.type} · {formatDateTime(f.uploadedAt)} · {Math.round(f.sizeBytes / 1024)} KB
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <Badge>{Math.round(f.sizeBytes / 1024)} KB</Badge>
+                <a
+                  href={fileDownloadUrl(f.id)}
+                  className="inline-flex items-center justify-center rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                >
+                  Download
+                </a>
                 {canDelete && (
                   <Button
                     size="sm"

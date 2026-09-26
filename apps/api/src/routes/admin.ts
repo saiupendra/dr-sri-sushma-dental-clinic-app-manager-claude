@@ -3,7 +3,7 @@ import { getCookie } from "hono/cookie";
 import { desc, eq, gt, isNull, lt, sql } from "drizzle-orm";
 import { strToU8, zipSync } from "fflate";
 import { z } from "zod";
-import type { SessionSummary, StorageStats } from "@clinic/shared";
+import type { BackupSummary, SessionSummary, StorageStats } from "@clinic/shared";
 import { getDb } from "../db/client.js";
 import {
   appointments,
@@ -59,7 +59,7 @@ adminRoutes.get("/sessions", async (c) => {
     id: session.id,
     staffId: staffRow.id,
     staffName: staffRow.name,
-    staffRole: staffRow.role,
+    staffRole: staffRow.role as SessionSummary["staffRole"],
     userAgent: session.userAgent,
     isCurrent: session.id === currentTokenHash,
     createdAt: session.createdAt,
@@ -92,6 +92,37 @@ adminRoutes.get("/storage", async (c) => {
 
   const stats: StorageStats = { fileCount: row?.fileCount ?? 0, totalBytes: row?.totalBytes ?? 0 };
   return c.json(stats);
+});
+
+const backupDateParamSchema = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD") });
+
+// Lists the nightly (or on-demand, via POST /api/internal/backup) full-data
+// snapshots already sitting in R2, so an admin can pull one down and put it
+// wherever they like (Google Drive, a laptop, ...) without this app needing
+// its own Drive integration.
+adminRoutes.get("/backups", async (c) => {
+  const listed = await c.env.FILES.list({ prefix: "backups/" });
+  const items: BackupSummary[] = listed.objects
+    .map((object) => {
+      const match = object.key.match(/^backups\/(\d{4}-\d{2}-\d{2})\.json$/);
+      if (!match) return null;
+      return { date: match[1]!, sizeBytes: object.size, uploaded: object.uploaded.toISOString() };
+    })
+    .filter((item): item is BackupSummary => item !== null)
+    .sort((a, b) => b.date.localeCompare(a.date));
+  return c.json({ items });
+});
+
+adminRoutes.get("/backups/:date/download", validate("param", backupDateParamSchema), async (c) => {
+  const { date } = c.req.valid("param");
+  const object = await c.env.FILES.get(`backups/${date}.json`);
+  if (!object) throw notFound("Backup");
+  return new Response(object.body, {
+    headers: {
+      "Content-Type": "application/json",
+      "Content-Disposition": `attachment; filename="clinic-backup-${date}.json"`,
+    },
+  });
 });
 
 function patientFolderName(patient: { id: string; name: string }): string {
