@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { idSchema, isoDateSchema, optionalString, requiredCoercedNumber, timestampsSchema } from "./common.js";
+import { APPOINTMENT_STATUSES } from "../constants.js";
+import { idSchema, isoDateSchema, isoDateTimeSchema, optionalString, requiredCoercedNumber, timestampsSchema } from "./common.js";
 
 export const sexSchema = z.enum(["male", "female", "other", "unspecified"]);
 
@@ -46,3 +47,23 @@ export const updatePatientSchema = createPatientSchema
   .omit({ id: true })
   .partial();
 export type UpdatePatientInput = z.infer<typeof updatePatientSchema>;
+
+/**
+ * What the list endpoint actually returns: the patient plus a few read-only,
+ * denormalized fields (next appointment, last completed visit, outstanding
+ * balance) so the patients list can show useful context with no per-row N+1
+ * lookup. The detail endpoint (GET /api/patients/:id) still returns a plain
+ * `patientSchema` item - these are list-only.
+ */
+export const patientListItemSchema = patientSchema.extend({
+  nextAppointment: z
+    .object({
+      id: idSchema,
+      startAt: isoDateTimeSchema,
+      status: z.enum(APPOINTMENT_STATUSES),
+    })
+    .nullable(),
+  lastVisitAt: isoDateTimeSchema.nullable(),
+  balanceDue: z.number(),
+});
+export type PatientListItem = z.infer<typeof patientListItemSchema>;

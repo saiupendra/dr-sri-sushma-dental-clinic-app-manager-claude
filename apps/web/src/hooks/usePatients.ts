@@ -1,16 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
-import type { CreatePatientInput, Patient, ToothChartEntry, UpdatePatientInput } from "@clinic/shared";
+import type { CreatePatientInput, Patient, PatientListItem, ToothChartEntry, UpdatePatientInput } from "@clinic/shared";
 import { api } from "../api/client.js";
 import { useOfflineMutation } from "../offline/useOfflineMutation.js";
 
 interface PatientListResponse {
-  items: Patient[];
+  items: PatientListItem[];
   page: number;
   pageSize: number;
   total: number;
 }
 
-function placeholderPatient(vars: CreatePatientInput): Patient {
+function placeholderPatient(vars: CreatePatientInput): PatientListItem {
   const now = new Date().toISOString();
   return {
     id: vars.id ?? crypto.randomUUID(),
@@ -29,6 +29,11 @@ function placeholderPatient(vars: CreatePatientInput): Patient {
     createdBy: null,
     createdAt: now,
     updatedAt: now,
+    // A freshly-created patient has no visit/billing history yet - the real
+    // values arrive once the list query is invalidated and refetched.
+    nextAppointment: null,
+    lastVisitAt: null,
+    balanceDue: 0,
   };
 }
 
