@@ -34,16 +34,20 @@ test("creates an invoice and records payments through to paid", async ({ page })
   // server always adds - not something this form lets you type or remove.
   await page.getByRole("button", { name: "+ Add line" }).click();
   await page.locator('input[placeholder^="Description"]').fill("Scaling and polishing");
-  await page.locator('input[placeholder="Amount"]').fill("1200");
-  await expect(page.getByText("₹1700.00")).toBeVisible();
+  await page.locator('input[placeholder="Cost"]').fill("1200");
+  await page.getByLabel("Units").fill("2");
+  await page.fill("#instructions", "Review after seven days.");
+  await expect(page.getByText("₹2900.00")).toBeVisible();
 
   await page.getByRole("button", { name: "Create invoice" }).click();
   await expect(page).toHaveURL(/\/billing\/[a-f0-9-]+$/);
-  await expect(page.getByRole("heading", { level: 1, name: /₹1700\.00/ })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: /₹2900\.00/ })).toBeVisible();
+  await expect(page.getByText("Review after seven days.")).toBeVisible();
   await expect(page.getByText("unpaid", { exact: true })).toBeVisible();
 
-  await page.fill("#amount", "1700");
+  await page.fill("#amount", "2900");
+  await page.selectOption("#method", "amazon_pay");
   await page.getByRole("button", { name: "Record" }).click();
   await expect(page.getByText("paid", { exact: true })).toBeVisible();
-  await expect(page.getByText("₹1700.00 via cash")).toBeVisible();
+  await expect(page.getByText("₹2900.00 via Amazon Pay")).toBeVisible();
 });
