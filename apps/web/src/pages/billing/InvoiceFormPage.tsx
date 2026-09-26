@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import type { CreateInvoiceItemInput } from "@clinic/shared";
 import { useCreateInvoice } from "../../hooks/useInvoices.js";
@@ -8,8 +8,6 @@ import { useTreatmentsList } from "../../hooks/useTreatments.js";
 import { ApiError } from "../../api/client.js";
 import { Button, Card, EmptyState, FieldError, Input, Label, PageHeader } from "../../components/ui.js";
 
-const CONSULTATION_FEE_DESCRIPTION = "Consultation fee";
-
 export function InvoiceFormPage() {
   const [searchParams] = useSearchParams();
   const preselectedPatientId = searchParams.get("patientId") ?? undefined;
@@ -18,28 +16,19 @@ export function InvoiceFormPage() {
   const createInvoice = useCreateInvoice();
 
   const [patient, setPatient] = useState<PickedPatient | null>(null);
-  const [items, setItems] = useState<CreateInvoiceItemInput[]>([{ description: "", amount: 0 }]);
+  // Additional charges only - the consultation fee below is never part of
+  // this list. The server prepends it unconditionally (see POST
+  // /api/invoices), so this can legitimately stay empty.
+  const [items, setItems] = useState<CreateInvoiceItemInput[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const effectivePatient =
     patient ?? (preselectedPatient ? { id: preselectedPatient.id, name: preselectedPatient.name, phone: preselectedPatient.phone } : null);
 
-  // Full record (PatientPicker only hands back id/name/phone) so the invoice
-  // can be seeded with this patient's consultation fee below.
+  // Full record (PatientPicker only hands back id/name/phone) for the
+  // consultation fee display below.
   const { data: fullPatient } = usePatient(effectivePatient?.id);
-
-  useEffect(() => {
-    if (!fullPatient) return;
-    const fee = fullPatient.consultationFee ?? 0;
-    setItems((prev) => {
-      // Only ever overwrite what auto-fill itself put there - never a line
-      // item the user actually typed something into.
-      const [first] = prev;
-      const isAutoFillable = prev.length === 1 && (first?.description === "" || first?.description === CONSULTATION_FEE_DESCRIPTION);
-      if (!isAutoFillable) return prev;
-      return [{ description: CONSULTATION_FEE_DESCRIPTION, amount: fee }];
-    });
-  }, [fullPatient]);
+  const consultationFee = fullPatient?.consultationFee ?? 0;
 
   const { data: treatments, isLoading: treatmentsLoading } = useTreatmentsList(effectivePatient?.id);
   const hasCompletedTreatment = !!treatments?.some((t) => t.status === "completed");
@@ -47,7 +36,7 @@ export function InvoiceFormPage() {
   // nothing to invoice yet for a patient with no completed treatment.
   const blockedByNoCompletedTreatment = !!effectivePatient && !treatmentsLoading && !hasCompletedTreatment;
 
-  const total = items.reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0);
+  const total = consultationFee + items.reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0);
 
   function updateItem(index: number, patch: Partial<CreateInvoiceItemInput>) {
     setItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...patch } : item)));
@@ -64,11 +53,10 @@ export function InvoiceFormPage() {
       setError("This patient has no completed treatment yet. A completed appointment alone isn't enough — add or complete a treatment note first.");
       return;
     }
+    // The consultation fee itself is never in `items` - the server adds it
+    // from the patient's record regardless, so an empty list here (no
+    // *additional* charges) is a perfectly valid invoice.
     const cleanItems = items.filter((item) => item.description.trim() && Number.isFinite(item.amount) && item.amount >= 0);
-    if (cleanItems.length === 0) {
-      setError("Add at least one line item with a description.");
-      return;
-    }
     try {
       const result = await createInvoice.mutateAsync({ patientId: effectivePatient.id, items: cleanItems });
       navigate(`/billing/${result.item.id}`);
@@ -102,7 +90,14 @@ export function InvoiceFormPage() {
             </EmptyState>
           )}
           <div className={blockedByNoCompletedTreatment ? "pointer-events-none opacity-50" : undefined}>
-            <Label>Line items</Label>
+            <Label>Consultation fee</Label>
+            <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+              <span className="text-slate-500">Set on the patient&apos;s profile - can&apos;t be edited or removed here</span>
+              <span className="font-medium text-slate-900">{effectivePatient && !fullPatient ? "…" : `₹${consultationFee.toFixed(2)}`}</span>
+            </div>
+          </div>
+          <div className={blockedByNoCompletedTreatment ? "pointer-events-none opacity-50" : undefined}>
+            <Label>Additional charges</Label>
             <div className="space-y-3">
               {items.map((item, i) => (
                 <div key={i} className="space-y-2 rounded-lg border border-slate-200 p-2">
@@ -121,12 +116,7 @@ export function InvoiceFormPage() {
                       onChange={(e) => updateItem(i, { amount: Number(e.target.value) })}
                       className="flex-1"
                     />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => setItems((prev) => prev.filter((_, idx) => idx !== i))}
-                      disabled={items.length === 1}
-                    >
+                    <Button type="button" variant="ghost" onClick={() => setItems((prev) => prev.filter((_, idx) => idx !== i))}>
                       ✕
                     </Button>
                   </div>
@@ -149,7 +139,10 @@ export function InvoiceFormPage() {
           </div>
           <FieldError>{error}</FieldError>
           <div className="flex gap-2">
-            <Button type="submit" disabled={createInvoice.isPending || blockedByNoCompletedTreatment}>
+            <Button
+              type="submit"
+              disabled={createInvoice.isPending || blockedByNoCompletedTreatment || (!!effectivePatient && !fullPatient)}
+            >
               {createInvoice.isPending ? "Saving…" : "Create invoice"}
             </Button>
             <Button type="button" variant="secondary" onClick={() => navigate(-1)}>

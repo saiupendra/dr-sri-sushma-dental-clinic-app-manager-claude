@@ -21,6 +21,29 @@ import type { AppContext } from "../types.js";
 export const invoiceRoutes = new Hono<AppContext>();
 invoiceRoutes.use("*", requireAuth);
 
+/** Must match apps/web's CONSULTATION_FEE_DESCRIPTION (InvoiceFormPage.tsx) - both name the one line item staff can never add, edit or delete themselves. */
+const CONSULTATION_FEE_DESCRIPTION = "Consultation fee";
+
+interface InvoiceItemInputLike {
+  id?: string;
+  treatmentRecordId?: string | null;
+  description: string;
+  amount: number;
+}
+
+/**
+ * Always prepended to whatever line items the client sent, both on create
+ * and on a full items replacement - so the consultation fee can never be
+ * left off, deleted or renamed via the API, only ever read from the
+ * patient's own record. A client-submitted "items" is therefore additional
+ * charges only; it may be empty.
+ */
+async function withConsultationFee(db: Db, patientId: string, items: InvoiceItemInputLike[]): Promise<InvoiceItemInputLike[]> {
+  const [patient] = await db.select({ consultationFee: patients.consultationFee }).from(patients).where(eq(patients.id, patientId)).limit(1);
+  const consultationFeeItem: InvoiceItemInputLike = { description: CONSULTATION_FEE_DESCRIPTION, amount: patient?.consultationFee ?? 0 };
+  return [consultationFeeItem, ...items];
+}
+
 async function loadInvoiceDetail(db: Db, id: string) {
   const [invoice] = await db
     .select()
@@ -189,9 +212,10 @@ invoiceRoutes.post("/", validate("json", createInvoiceSchema), async (c) => {
 
   const id = input.id ?? crypto.randomUUID();
   const now = new Date().toISOString();
-  const totalAmount = input.items.reduce((sum, item) => sum + item.amount, 0);
+  const items = await withConsultationFee(db, input.patientId, input.items);
+  const totalAmount = items.reduce((sum, item) => sum + item.amount, 0);
 
-  const itemRows = input.items.map((item) => ({
+  const itemRows = items.map((item) => ({
     id: item.id ?? crypto.randomUUID(),
     invoiceId: id,
     treatmentRecordId: item.treatmentRecordId ?? null,
@@ -246,8 +270,9 @@ invoiceRoutes.patch(
     let totalAmount = existing.totalAmount;
 
     if (input.items) {
-      totalAmount = input.items.reduce((sum, item) => sum + item.amount, 0);
-      const itemRows = input.items.map((item) => ({
+      const items = await withConsultationFee(db, existing.patientId, input.items);
+      totalAmount = items.reduce((sum, item) => sum + item.amount, 0);
+      const itemRows = items.map((item) => ({
         id: item.id ?? crypto.randomUUID(),
         invoiceId: id,
         treatmentRecordId: item.treatmentRecordId ?? null,
