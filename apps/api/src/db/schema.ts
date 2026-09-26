@@ -172,6 +172,7 @@ export const invoiceItems = sqliteTable(
     treatmentRecordId: text("treatment_record_id").references(() => treatmentRecords.id),
     description: text("description").notNull(),
     amount: real("amount").notNull(),
+    units: integer("units").notNull().default(1),
   },
   (t) => ({
     invoiceIdx: index("invoice_items_invoice_idx").on(t.invoiceId),

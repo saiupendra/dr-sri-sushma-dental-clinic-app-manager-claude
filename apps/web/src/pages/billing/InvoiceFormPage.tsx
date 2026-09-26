@@ -6,7 +6,9 @@ import { PatientPicker, type PickedPatient } from "../../components/PatientPicke
 import { usePatient } from "../../hooks/usePatients.js";
 import { useTreatmentsList } from "../../hooks/useTreatments.js";
 import { ApiError } from "../../api/client.js";
-import { Button, Card, EmptyState, FieldError, Input, Label, PageHeader } from "../../components/ui.js";
+import { Button, Card, EmptyState, FieldError, Input, Label, PageHeader, Textarea } from "../../components/ui.js";
+
+type InvoiceDraftItem = CreateInvoiceItemInput & { unitCost: number };
 
 export function InvoiceFormPage() {
   const [searchParams] = useSearchParams();
@@ -19,7 +21,8 @@ export function InvoiceFormPage() {
   // Additional charges only - the consultation fee below is never part of
   // this list. The server prepends it unconditionally (see POST
   // /api/invoices), so this can legitimately stay empty.
-  const [items, setItems] = useState<CreateInvoiceItemInput[]>([]);
+  const [items, setItems] = useState<InvoiceDraftItem[]>([]);
+  const [instructions, setInstructions] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const effectivePatient =
@@ -38,7 +41,7 @@ export function InvoiceFormPage() {
 
   const total = consultationFee + items.reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0);
 
-  function updateItem(index: number, patch: Partial<CreateInvoiceItemInput>) {
+  function updateItem(index: number, patch: Partial<InvoiceDraftItem>) {
     setItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...patch } : item)));
   }
 
@@ -56,9 +59,17 @@ export function InvoiceFormPage() {
     // The consultation fee itself is never in `items` - the server adds it
     // from the patient's record regardless, so an empty list here (no
     // *additional* charges) is a perfectly valid invoice.
-    const cleanItems = items.filter((item) => item.description.trim() && Number.isFinite(item.amount) && item.amount >= 0);
+    const cleanItems = items.filter((item) => item.description.trim() && Number.isFinite(item.unitCost) && item.unitCost >= 0 && Number.isInteger(item.units) && item.units > 0 && item.units <= 999);
     try {
-      const result = await createInvoice.mutateAsync({ patientId: effectivePatient.id, items: cleanItems });
+      if (cleanItems.length !== items.length) {
+        setError("Complete every additional charge with a description, cost and valid number of units.");
+        return;
+      }
+      const result = await createInvoice.mutateAsync({
+        patientId: effectivePatient.id,
+        items: cleanItems.map(({ unitCost: _unitCost, ...item }) => item),
+        notes: instructions.trim(),
+      });
       navigate(`/billing/${result.item.id}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not create the invoice.");
@@ -106,16 +117,37 @@ export function InvoiceFormPage() {
                     value={item.description}
                     onChange={(e) => updateItem(i, { description: e.target.value })}
                   />
-                  <div className="flex gap-2">
-                    <Input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      placeholder="Amount"
-                      value={item.amount || ""}
-                      onChange={(e) => updateItem(i, { amount: Number(e.target.value) })}
-                      className="flex-1"
-                    />
+                  <div className="flex items-end gap-2">
+                    <div className="flex-1">
+                      <Label htmlFor={`cost-${i}`}>Cost per unit</Label>
+                      <Input
+                        id={`cost-${i}`}
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        placeholder="Cost"
+                        value={item.unitCost || ""}
+                        onChange={(e) => {
+                          const unitCost = Number(e.target.value);
+                          updateItem(i, { unitCost, amount: Math.round(unitCost * item.units * 100) / 100 });
+                        }}
+                      />
+                    </div>
+                    <div className="w-20">
+                      <Label htmlFor={`units-${i}`}>Units</Label>
+                      <Input
+                        id={`units-${i}`}
+                        type="number"
+                        min={1}
+                        max={999}
+                        step={1}
+                        value={item.units}
+                        onChange={(e) => {
+                          const units = Number(e.target.value);
+                          updateItem(i, { units, amount: Math.round(item.unitCost * units * 100) / 100 });
+                        }}
+                      />
+                    </div>
                     <Button type="button" variant="ghost" onClick={() => setItems((prev) => prev.filter((_, idx) => idx !== i))}>
                       ✕
                     </Button>
@@ -128,10 +160,21 @@ export function InvoiceFormPage() {
               variant="secondary"
               size="sm"
               className="mt-2"
-              onClick={() => setItems((prev) => [...prev, { description: "", amount: 0 }])}
+              onClick={() => setItems((prev) => [...prev, { description: "", amount: 0, units: 1, unitCost: 0 }])}
             >
               + Add line
             </Button>
+          </div>
+          <div>
+            <Label htmlFor="instructions">Instructions (optional)</Label>
+            <Textarea
+              id="instructions"
+              rows={3}
+              maxLength={2000}
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              placeholder="Aftercare or payment instructions printed on the invoice"
+            />
           </div>
           <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-sm font-semibold text-slate-900">
             <span>Total</span>

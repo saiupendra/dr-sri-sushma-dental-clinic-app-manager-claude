@@ -3,11 +3,11 @@ export const CLINIC_NAME = "Dr.Sri Sushma Multispeciality Dental Clinic";
 
 /** Letterhead facts printed on generated invoice PDFs. */
 export const CLINIC_GSTIN = "36APBPY6938F1ZF";
-export const CLINIC_ADDRESS = "Sanjay Apartment, beside Canara Bank, Anandbagh, Moula Ali, Hyderabad, Telangana 500047";
+export const CLINIC_ADDRESS = "Sanjay Apartment, beside Canara Bank, Anandbagh, Moula Ali, Hyderabad, Secunderabad, Telangana 500047";
 export const CLINIC_PHONE = "+91 79958 15454";
 export const CLINIC_EMAIL = "info@drsrisushmadentalclinic.com";
 export const CLINIC_WEBSITE = "www.drsrisushmadentalclinic.com";
-export const CLINIC_HOURS = "9:00 AM - 9:00 PM, Monday to Sunday";
+export const CLINIC_HOURS = "9:00 AM - 9:00 PM, 365 days";
 
 /**
  * Staff roles. Admin is the system/operations role (staff accounts,
@@ -42,7 +42,7 @@ export const INVOICE_STATUSES = [
 ] as const;
 export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
 
-export const PAYMENT_METHODS = ["cash", "card", "upi", "netbanking", "other"] as const;
+export const PAYMENT_METHODS = ["cash", "card", "upi", "amazon_pay", "netbanking", "other"] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
 export const FILE_TYPES = ["xray", "photo", "document", "other", "profile_photo", "before_treatment"] as const;

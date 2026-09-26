@@ -13,6 +13,7 @@ export const invoiceItemSchema = z.object({
   treatmentRecordId: idSchema.nullable(),
   description: z.string().min(1).max(300),
   amount: z.number().nonnegative(),
+  units: z.number().int().min(1).max(999),
 });
 export type InvoiceItem = z.infer<typeof invoiceItemSchema>;
 
@@ -21,6 +22,7 @@ export const createInvoiceItemSchema = z.object({
   treatmentRecordId: idSchema.optional(),
   description: z.string().min(1).max(300),
   amount: z.number().nonnegative(),
+  units: z.number().int().min(1).max(999).default(1),
 });
 export type CreateInvoiceItemInput = z.infer<typeof createInvoiceItemSchema>;
 

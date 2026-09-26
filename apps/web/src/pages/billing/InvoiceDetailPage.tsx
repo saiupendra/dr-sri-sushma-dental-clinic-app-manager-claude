@@ -13,6 +13,10 @@ import { formatDateTime } from "../../lib/dates.js";
 import { ApiError } from "../../api/client.js";
 import { Badge, Button, Card, FieldError, Input, Label, PageHeader, Select } from "../../components/ui.js";
 
+const PAYMENT_LABELS: Record<string, string> = {
+  cash: "Cash", card: "Card", upi: "UPI", amazon_pay: "Amazon Pay", netbanking: "Net banking", other: "Other",
+};
+
 export function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { data: invoice, isLoading } = useInvoice(id);
@@ -53,7 +57,7 @@ export function InvoiceDetailPage() {
   }
 
   return (
-    <div className="mx-auto max-w-lg space-y-4">
+    <div className="mx-auto max-w-4xl space-y-4">
       <PageHeader
         title={`Invoice · ₹${invoice.totalAmount.toFixed(2)}`}
         subtitle={formatDateTime(invoice.date)}
@@ -85,28 +89,39 @@ export function InvoiceDetailPage() {
       )}
 
       <Card>
-        <h2 className="mb-2 text-sm font-semibold text-slate-700">Line items</h2>
-        <ul className="divide-y divide-slate-100 text-sm">
-          {invoice.items.map((item) => (
-            <li key={item.id} className="flex justify-between py-2">
-              <span>{item.description}</span>
-              <span>₹{item.amount.toFixed(2)}</span>
-            </li>
-          ))}
-        </ul>
-        <div className="mt-3 space-y-1 border-t border-slate-100 pt-3 text-sm">
-          <div className="flex justify-between font-medium text-slate-900">
-            <span>Total</span>
-            <span>₹{invoice.totalAmount.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between text-slate-500">
-            <span>Paid</span>
-            <span>₹{invoice.amountPaid.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between font-medium text-slate-900">
-            <span>Outstanding</span>
-            <span>₹{Math.max(0, outstanding).toFixed(2)}</span>
-          </div>
+        <h2 className="mb-3 text-sm font-semibold text-slate-700">Invoice details</h2>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[700px] border-collapse text-left text-xs text-slate-700">
+            <thead className="bg-blue-50 text-slate-900">
+              <tr>
+                {["S.No", "Procedure Type", "Particulars", "Cost", "Units", "Net Amt", "Gross Amt"].map((header) => (
+                  <th key={header} className="border border-slate-200 px-2 py-2 font-semibold">{header}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {invoice.items.map((item, index) => (
+                <tr key={item.id}>
+                  <td className="border border-slate-200 px-2 py-2">{index + 1}</td>
+                  <td className="border border-slate-200 px-2 py-2">{item.description.toLowerCase() === "consultation fee" ? "CONSULTATION" : "PROCEDURE"}</td>
+                  <td className="border border-slate-200 px-2 py-2">{item.description}</td>
+                  <td className="border border-slate-200 px-2 py-2 text-right">₹{(item.amount / item.units).toFixed(2)}</td>
+                  <td className="border border-slate-200 px-2 py-2 text-right">{item.units}</td>
+                  <td className="border border-slate-200 px-2 py-2 text-right">₹{item.amount.toFixed(2)}</td>
+                  <td className="border border-slate-200 px-2 py-2 text-right">₹{item.amount.toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-4 ml-auto max-w-xs space-y-2 text-sm">
+          <div className="flex justify-between font-semibold text-slate-900"><span>Total Gross Amt</span><span>₹{invoice.totalAmount.toFixed(2)}</span></div>
+          <div className="flex justify-between text-slate-600"><span>Received</span><span>₹{invoice.amountPaid.toFixed(2)}</span></div>
+          <div className="flex justify-between border-t border-slate-200 pt-2 font-semibold text-slate-900"><span>Balance due</span><span>₹{Math.max(0, outstanding).toFixed(2)}</span></div>
+        </div>
+        <div className="mt-4 border-t border-slate-100 pt-3 text-sm">
+          <p className="font-semibold text-slate-800">Instructions</p>
+          <p className="mt-1 whitespace-pre-wrap text-slate-600">{invoice.notes || "None"}</p>
         </div>
       </Card>
 
@@ -118,7 +133,7 @@ export function InvoiceDetailPage() {
             <li key={payment.id} className="flex items-center justify-between py-2">
               <div>
                 <span className="font-medium">₹{payment.amount.toFixed(2)}</span>{" "}
-                <span className="text-slate-400">via {payment.method}</span>
+                <span className="text-slate-400">via {PAYMENT_LABELS[payment.method] ?? payment.method}</span>
                 <p className="text-xs text-slate-400">{formatDateTime(payment.paidAt)}</p>
               </div>
               <Button size="sm" variant="ghost" onClick={() => deletePayment.mutate(payment.id)}>
@@ -139,7 +154,7 @@ export function InvoiceDetailPage() {
               <Select id="method" value={method} onChange={(e) => setMethod(e.target.value as PaymentMethod)}>
                 {PAYMENT_METHODS.map((m) => (
                   <option key={m} value={m}>
-                    {m.toUpperCase()}
+                    {PAYMENT_LABELS[m]}
                   </option>
                 ))}
               </Select>

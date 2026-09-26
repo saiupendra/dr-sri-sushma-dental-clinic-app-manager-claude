@@ -29,6 +29,7 @@ interface InvoiceItemInputLike {
   treatmentRecordId?: string | null;
   description: string;
   amount: number;
+  units?: number;
 }
 
 /**
@@ -40,7 +41,7 @@ interface InvoiceItemInputLike {
  */
 async function withConsultationFee(db: Db, patientId: string, items: InvoiceItemInputLike[]): Promise<InvoiceItemInputLike[]> {
   const [patient] = await db.select({ consultationFee: patients.consultationFee }).from(patients).where(eq(patients.id, patientId)).limit(1);
-  const consultationFeeItem: InvoiceItemInputLike = { description: CONSULTATION_FEE_DESCRIPTION, amount: patient?.consultationFee ?? 0 };
+  const consultationFeeItem: InvoiceItemInputLike = { description: CONSULTATION_FEE_DESCRIPTION, amount: patient?.consultationFee ?? 0, units: 1 };
   return [consultationFeeItem, ...items];
 }
 
@@ -89,6 +90,7 @@ export async function loadInvoicePdfBytes(db: Db, id: string, requireShareToken?
       status: invoices.status,
       totalAmount: invoices.totalAmount,
       amountPaid: invoices.amountPaid,
+      notes: invoices.notes,
       shareToken: invoices.shareToken,
       patientName: patients.name,
       patientPhone: patients.phone,
@@ -106,9 +108,14 @@ export async function loadInvoicePdfBytes(db: Db, id: string, requireShareToken?
   if (requireShareToken !== undefined && row.shareToken !== requireShareToken) return null;
 
   const items = await db
-    .select({ description: invoiceItems.description, amount: invoiceItems.amount, treatmentRecordId: invoiceItems.treatmentRecordId })
+    .select({ description: invoiceItems.description, amount: invoiceItems.amount, units: invoiceItems.units, treatmentRecordId: invoiceItems.treatmentRecordId })
     .from(invoiceItems)
     .where(eq(invoiceItems.invoiceId, id));
+  const invoicePayments = await db
+    .select({ amount: payments.amount, method: payments.method, note: payments.note })
+    .from(payments)
+    .where(eq(payments.invoiceId, id))
+    .orderBy(payments.paidAt);
 
   // Only line items billed for actual treatment carry a treatmentRecordId
   // (a plain consultation-fee line doesn't) - treatmentRecords.staffId is
@@ -133,8 +140,10 @@ export async function loadInvoicePdfBytes(db: Db, id: string, requireShareToken?
     items,
     totalAmount: row.totalAmount,
     amountPaid: row.amountPaid,
+    payments: invoicePayments,
     generatedByName: row.generatedByName,
     treatedByNames,
+    instructions: row.notes,
   });
 }
 
@@ -221,6 +230,7 @@ invoiceRoutes.post("/", validate("json", createInvoiceSchema), async (c) => {
     treatmentRecordId: item.treatmentRecordId ?? null,
     description: item.description,
     amount: item.amount,
+    units: item.units ?? 1,
   }));
 
   // D1's batch() runs every statement as one atomic transaction, so an invoice
@@ -278,6 +288,7 @@ invoiceRoutes.patch(
         treatmentRecordId: item.treatmentRecordId ?? null,
         description: item.description,
         amount: item.amount,
+        units: item.units ?? 1,
       }));
       const statements = [
         db.delete(invoiceItems).where(eq(invoiceItems.invoiceId, id)),
