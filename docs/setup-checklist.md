@@ -77,12 +77,14 @@ needed):
   `https://api.drsrisushmadentalclinic.com`, preview (used by the `staging`
   branch) → `https://api-staging.drsrisushmadentalclinic.com`.
 
-**Not yet done**: `main` has no commits yet (this app's work is on
-`claude/clinic-management-app`, per this session's branch instructions), so
-there's been no build yet, and the custom domains
-(`app.drsrisushmadentalclinic.com`, `staging-app.drsrisushmadentalclinic.com`)
-aren't attached — that's the DNS step (step 2), which needs your go-ahead
-since it's the same zone as the marketing site.
+The production Pages project uses `main`. For the staging custom domain to
+serve the `staging` branch, the **proxied** Cloudflare DNS CNAME for
+`staging-app.drsrisushmadentalclinic.com` must target
+`staging.clinic-manager-eh7.pages.dev`. A CNAME to the project's root
+`clinic-manager-eh7.pages.dev` serves the production branch on that hostname.
+Keep the custom domain attached to the Pages project and confirm the staging
+hostname serves the staging build before creating its first account. The
+`*.pages.dev` preview cannot use the current same-site API session cookie.
 
 **Verify**: once `main` has a commit and step 2's domain is attached, open
 `https://app.drsrisushmadentalclinic.com` — you should land on the one-time
@@ -92,12 +94,12 @@ will show it (once `main` has something to build).
 ## 5. First login
 
 Open the deployed app (staging first, then production) — with no staff yet,
-it redirects to a one-time setup page that creates the first **doctor**
-account. This only works once; after that, that doctor signs in and creates
-front-desk accounts from Staff → Add staff.
+it redirects to a one-time setup page that creates the first **administrator**
+account. This only works once; after that, the administrator signs in and creates
+doctor and front-desk accounts from Staff → Add staff.
 
-**Verify**: sign in, and confirm `Staff` in the nav only appears for that
-doctor account, not for a front-desk account you create afterwards.
+**Verify**: sign in, and confirm `Staff` in the nav appears for administrators
+and doctors, but not for front-desk accounts.
 
 ## 6. Monitoring (see `docs/monitoring.md` for detail)
 
