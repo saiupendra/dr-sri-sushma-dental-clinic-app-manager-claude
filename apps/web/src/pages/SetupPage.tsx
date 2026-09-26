@@ -10,7 +10,7 @@ import { Button, Card, FieldError, Input, Label } from "../components/ui.js";
 /** One-time first-run setup: creates the first doctor account. The API refuses this once any staff exists. */
 export function SetupPage() {
   const { user, bootstrap } = useAuth();
-  const { data: bootstrapStatus, isLoading } = useBootstrapStatus();
+  const { data: bootstrapStatus, isPending: isCheckingSetup, refetch: retrySetup } = useBootstrapStatus();
   const navigate = useNavigate();
 
   const {
@@ -23,8 +23,27 @@ export function SetupPage() {
   });
 
   if (user) return <Navigate to="/" replace />;
-  if (!isLoading && bootstrapStatus && !bootstrapStatus.needsBootstrap) {
+  if (bootstrapStatus && !bootstrapStatus.needsBootstrap) {
     return <Navigate to="/login" replace />;
+  }
+  if (isCheckingSetup || !bootstrapStatus) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+        <Card className="w-full max-w-sm text-center">
+          <h1 className="text-lg font-semibold text-slate-900">First-time setup</h1>
+          {isCheckingSetup ? (
+            <p className="mt-2 text-sm text-slate-500">Checking whether the clinic already has an account…</p>
+          ) : (
+            <>
+              <p className="mt-2 text-sm text-slate-500">
+                We could not check whether an account already exists. Check your connection and try again.
+              </p>
+              <Button className="mt-4" onClick={() => void retrySetup()}>Try again</Button>
+            </>
+          )}
+        </Card>
+      </div>
+    );
   }
 
   const onSubmit = async (values: BootstrapStaffInput) => {
